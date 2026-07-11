@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════════
+# D-In-Sec — Git Ignore Rules
+# ═══════════════════════════════════════════════════════════
+
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# ── Virtual Environment ──────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Flask / Instance ─────────────────────────────────────
+mock_site/instance/
+*.db
+*.sqlite3
+
+# ── Uploads (user-submitted documents) ───────────────────
+mock_site/uploads/
+
+# ── Logs (raw system logs) ───────────────────────────────
+mock_site/logs/
+
+# ── IDE & Editor ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── OS Generated ─────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# ── Environment Variables ────────────────────────────────
+.env
+.env.local
+.env.production
+
+# ── Misc ─────────────────────────────────────────────────
+*.log
+*.bak
+*.tmp

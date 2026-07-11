@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — D-In-Sec Portal{% endblock %}
+
+{% block content %}
+<div class="dashboard-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="user-profile-mini">
+                <div class="avatar-large">{{ current_user.username[0]|upper }}</div>
+                <div class="user-info">
+                    <span class="user-display-name">{{ current_user.full_name or current_user.username }}</span>
+                    <span class="user-email">{{ current_user.email }}</span>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="#profile-section" class="sidebar-link active" data-section="profile" id="nav-profile">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>My Profile</span>
+            </a>
+            <a href="#documents-section" class="sidebar-link" data-section="documents" id="nav-documents">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>Documents</span>
+                <span class="badge">{{ documents|length }}</span>
+            </a>
+            <a href="#upload-section" class="sidebar-link" data-section="upload" id="nav-upload">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Upload</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="verification-summary">
+                {% set verified_count = documents|selectattr('status', 'equalto', 'Verified')|list|length %}
+                {% set pending_count = documents|selectattr('status', 'equalto', 'Pending')|list|length %}
+                <div class="summary-item">
+                    <span class="summary-number text-green">{{ verified_count }}</span>
+                    <span class="summary-label">Verified</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-number text-amber">{{ pending_count }}</span>
+                    <span class="summary-label">Pending</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-number text-blue">{{ documents|length }}</span>
+                    <span class="summary-label">Total</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Dashboard Content -->
+    <div class="dashboard-content">
+
+        <!-- Profile Section -->
+        <section class="dash-section" id="profile-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    Personal Information
+                </h2>
+                <p class="section-subtitle">Update your identity details for document verification</p>
+            </div>
+            <form method="POST" action="{{ url_for('dashboard.update_profile') }}" class="profile-form" id="profile-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="full_name">Full Legal Name</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            <input type="text" id="full_name" name="full_name" value="{{ current_user.full_name or '' }}" placeholder="e.g. Rajesh Kumar Sharma">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="date_of_birth">Date of Birth</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <input type="date" id="date_of_birth" name="date_of_birth" value="{{ current_user.date_of_birth or '' }}">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">Phone Number</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            <input type="tel" id="phone" name="phone" value="{{ current_user.phone or '' }}" placeholder="e.g. +91-9876543210">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="aadhaar_number">Aadhaar Number</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                            <input type="text" id="aadhaar_number" name="aadhaar_number" value="{{ current_user.aadhaar_number or '' }}" placeholder="e.g. 1234-5678-9012" maxlength="14">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="pan_number">PAN Number</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                            <input type="text" id="pan_number" name="pan_number" value="{{ current_user.pan_number or '' }}" placeholder="e.g. ABCDE1234F" maxlength="10" style="text-transform: uppercase;">
+                        </div>
+                    </div>
+                    <div class="form-group form-group-full">
+                        <label for="address">Residential Address</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                            <textarea id="address" name="address" rows="2" placeholder="e.g. 42, MG Road, Koramangala, Bangalore 560001">{{ current_user.address or '' }}</textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="save-profile-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        <span>Save Profile</span>
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="dash-section" id="upload-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Upload Document
+                </h2>
+                <p class="section-subtitle">Submit identity documents for verification</p>
+            </div>
+            <form method="POST" action="{{ url_for('dashboard.upload_document') }}" enctype="multipart/form-data" class="upload-form" id="upload-form">
+                <div class="upload-grid">
+                    <div class="form-group">
+                        <label for="doc_type">Document Type</label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <select id="doc_type" name="doc_type" required>
+                                <option value="">Select document type</option>
+                                {% for dtype in doc_types %}
+                                    <option value="{{ dtype }}">{{ dtype }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="document">Choose File</label>
+                        <div class="file-upload-area" id="file-drop-zone">
+                            <input type="file" id="document" name="document" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" required>
+                            <div class="file-upload-content">
+                                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <p class="file-upload-text">Drag & drop or <span>browse files</span></p>
+                                <p class="file-upload-hint">PDF, PNG, JPG, DOC, DOCX (max 16 MB)</p>
+                            </div>
+                            <div class="file-selected" id="file-selected" style="display: none;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                <span id="file-name-display"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="upload-submit-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span>Upload Document</span>
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Documents Section -->
+        <section class="dash-section" id="documents-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    Submitted Documents
+                </h2>
+                <p class="section-subtitle">Track verification status of your uploaded documents</p>
+            </div>
+
+            {% if documents %}
+                <div class="documents-table-wrapper">
+                    <table class="documents-table" id="documents-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Document Type</th>
+                                <th>File Name</th>
+                                <th>Submitted</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for doc in documents %}
+                                <tr class="doc-row" data-status="{{ doc.status|lower }}">
+                                    <td class="doc-id">{{ doc.id }}</td>
+                                    <td>
+                                        <div class="doc-type-cell">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                            {{ doc.doc_type }}
+                                        </div>
+                                    </td>
+                                    <td class="doc-filename">{{ doc.file_name }}</td>
+                                    <td class="doc-date">{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}</td>
+                                    <td>
+                                        <span class="status-badge status-{{ doc.status|lower }}">
+                                            {% if doc.status == 'Verified' %}
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                            {% elif doc.status == 'Pending' %}
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                            {% else %}
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                            {% endif %}
+                                            {{ doc.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if doc.status == 'Pending' %}
+                                            <form method="POST" action="{{ url_for('dashboard.verify_document', doc_id=doc.id) }}" style="display:inline;">
+                                                <button type="submit" class="btn btn-sm btn-verify" id="verify-btn-{{ doc.id }}">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Verify
+                                                </button>
+                                            </form>
+                                        {% elif doc.status == 'Verified' %}
+                                            <span class="text-green text-sm">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                                Done
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state" id="empty-documents">
+                    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <h3>No documents yet</h3>
+                    <p>Upload your first identity document to get started with verification.</p>
+                </div>
+            {% endif %}
+        </section>
+
+    </div>
+</div>
+{% endblock %}
