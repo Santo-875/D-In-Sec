@@ -1,10 +1,5 @@
-"""
-D-In-Sec Mock Site — Dashboard Routes
-Handles user dashboard, profile updates, document uploads,
-and mock verification logic with raw PII logging.
-"""
-
 import os
+import re
 import logging
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app
@@ -68,6 +63,20 @@ def update_profile():
     address = request.form.get('address', '').strip()
     aadhaar_number = request.form.get('aadhaar_number', '').strip()
     pan_number = request.form.get('pan_number', '').strip()
+
+    # Validation
+    errors = []
+    if pan_number and not re.match(r"^[A-Z]{5}\d{4}[A-Z]$", pan_number, re.IGNORECASE):
+        errors.append("Invalid PAN format.")
+    if phone and not re.match(r"^\d{10,12}$", phone):
+        errors.append("Invalid Phone format (must be 10-12 digits).")
+    if aadhaar_number and not re.match(r"^\d{4}[-\s]?\d{4}[-\s]?\d{4}$", aadhaar_number):
+        errors.append("Invalid Aadhaar format.")
+
+    if errors:
+        for err in errors:
+            flash(err, 'error')
+        return redirect(url_for('dashboard.index'))
 
     # Update the user record
     current_user.full_name = full_name or current_user.full_name
