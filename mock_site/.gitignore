@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+
+# Flask instance
+instance/
+
+# === VAULT SECRETS — NEVER COMMIT THESE ===
+vault/vault.key
+vault/vault.db
+
+# Logs
+logs/
+*.log
+
+# Uploads (raw files should not be in version control)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db

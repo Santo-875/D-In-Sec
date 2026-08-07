@@ -1,3 +1,12 @@
+"""
+D-In-Sec Mock Site — Authentication Routes
+
+SECURITY (Phase 1):
+  All logs now use structured event-based format — no raw usernames,
+  emails, or PII appear in system.log.
+"""
+
+import hashlib
 import logging
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
@@ -5,6 +14,11 @@ from models import db, User
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger('mock_site')
+
+
+def _hash_value(val: str) -> str:
+    """One-way hash for log correlation without exposing raw values."""
+    return hashlib.sha256(val.encode()).hexdigest()[:12]
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -16,24 +30,19 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        client_ip = request.remote_addr
 
         user = User.query.filter_by(username=username).first()
 
         if user and user.check_password(password):
             login_user(user, remember=True)
-            # --- RAW PII LOG: Successful login ---
-            logger.info(
-                f"User {user.username} ({user.email}) logged in successfully "
-                f"from IP {client_ip}"
-            )
+            # Structured log — actor_id only, no username/email
+            logger.info(f"event=LOGIN_SUCCESS actor_id={user.id}")
             flash('Login successful! Welcome back.', 'success')
             return redirect(url_for('dashboard.index'))
         else:
-            # --- RAW LOG: Failed login attempt ---
+            # Hashed username for correlation without exposing value
             logger.warning(
-                f"Failed login attempt for username '{username}' "
-                f"from IP {client_ip}"
+                f"event=LOGIN_FAIL username_hash={_hash_value(username)}"
             )
             flash('Invalid username or password.', 'error')
 
@@ -48,12 +57,10 @@ def signup():
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
-        email = request.form.get('email', '').strip()
+        email    = request.form.get('email', '').strip()
         password = request.form.get('password', '')
-        confirm = request.form.get('confirm_password', '')
-        client_ip = request.remote_addr
+        confirm  = request.form.get('confirm_password', '')
 
-        # Basic validation
         errors = []
         if not username or not email or not password:
             errors.append('All fields are required.')
@@ -71,17 +78,13 @@ def signup():
                 flash(err, 'error')
             return render_template('signup.html')
 
-        # Create user
         new_user = User(username=username, email=email)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
 
-        # --- RAW PII LOG: New account created ---
-        logger.info(
-            f"New user account created: username={new_user.username}, "
-            f"email={new_user.email} from IP {client_ip}"
-        )
+        # Structured log — actor_id only, no username/email
+        logger.info(f"event=SIGNUP_SUCCESS actor_id={new_user.id}")
 
         flash('Account created successfully! Please log in.', 'success')
         return redirect(url_for('auth.login'))
@@ -93,12 +96,8 @@ def signup():
 @login_required
 def logout():
     """Log out the current user."""
-    client_ip = request.remote_addr
-    # --- RAW PII LOG: Logout ---
-    logger.info(
-        f"User {current_user.username} ({current_user.email}) "
-        f"logged out from IP {client_ip}"
-    )
+    actor_id = current_user.id
     logout_user()
+    logger.info(f"event=LOGOUT actor_id={actor_id}")
     flash('You have been logged out.', 'info')
     return redirect(url_for('auth.login'))
