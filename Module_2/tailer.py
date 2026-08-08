@@ -1,14 +1,36 @@
 import time
 import os
+import sqlite3
 from pathlib import Path
 
 from parser import parse_log_line
 from template_detector import detect_template
-from masking.regex import mask_structured_pii
+from masking.regex import mask_from_schema
 from masking.ner_masking import mask_named_entities
 
-LOG_FILE_PATH = Path(r"F:\D-inSec\mock_site\logs\system.log")
+# Paths resolved relative to script location to avoid hardcoding machine-specific paths
+BASE_DIR = Path(__file__).resolve().parent.parent
+LOG_FILE_PATH = BASE_DIR / "mock_site" / "logs" / "system.log"
+DB_PATH = BASE_DIR / "mock_site" / "instance" / "mock_site.db"
+
 POLL_INTERVAL_SECONDS = 1.0
+
+
+def get_schema_fields(db_path: Path) -> list:
+    """Read admin-defined field schemas directly from SQLite DB."""
+    if not db_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT regex_pattern, mask_label, pii_category FROM field_schemas")
+        rows = cursor.fetchall()
+        fields = [dict(row) for row in rows]
+        conn.close()
+        return fields
+    except Exception:
+        return []
 
 
 def tail_log_file(path: Path):
@@ -40,6 +62,7 @@ def tail_log_file(path: Path):
 
 def main():
     print(f"Watching: {LOG_FILE_PATH}")
+    print(f"Database: {DB_PATH}")
     print("Waiting for new log lines... (Ctrl+C to stop)\n")
 
     for raw_line in tail_log_file(LOG_FILE_PATH):
@@ -49,8 +72,11 @@ def main():
 
         tagged = detect_template(parsed)
 
-        # Run masking on the raw_message
-        masked_text, regex_found = mask_structured_pii(tagged.raw_message)
+        # Dynamic query of active schema definitions
+        schema_fields = get_schema_fields(DB_PATH)
+
+        # Run masking on the raw_message using dynamic schema + ner
+        masked_text, regex_found = mask_from_schema(tagged.raw_message, schema_fields)
         masked_text, ner_found = mask_named_entities(masked_text)
 
         print(f"[{tagged.template.value}]")
