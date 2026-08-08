@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}My Data Rights — D-In-Sec{% endblock %}
+
+{% block content %}
+<div style="max-width:920px;margin:40px auto;padding:0 24px">
+
+    <div style="margin-bottom:32px">
+        <a href="{{ url_for('dashboard.index') }}" style="font-size:13px;color:#64748b;text-decoration:none;display:inline-flex;align-items:center;gap:6px;margin-bottom:16px">← Back to Dashboard</a>
+        <h1 style="font-size:22px;font-weight:700;color:#e2e8f0">My Data Rights (DSAR)</h1>
+        <p style="font-size:14px;color:#64748b;margin-top:6px">Under India's Digital Personal Data Protection Act (DPDP), you have the right to access a summary of your stored data and to request its erasure.</p>
+    </div>
+
+    {# ─── Check for active requests ─── #}
+    {% set active_access   = past_requests | selectattr('request_type', 'equalto', 'ACCESS')   | selectattr('status', 'equalto', 'completed') | list | first %}
+    {% set erasure_approved = past_requests | selectattr('request_type', 'equalto', 'ERASURE')  | selectattr('status', 'equalto', 'approved')  | list | first %}
+    {% set erasure_pending_final = past_requests | selectattr('request_type', 'equalto', 'ERASURE') | selectattr('status', 'equalto', 'fields_selected') | list | first %}
+
+    {# ─── ACCESS COMPLETED: Show full data report ─── #}
+    {% if active_access %}
+    <div style="background:rgba(6,182,212,0.05);border:2px solid #06b6d4;border-radius:14px;padding:28px;margin-bottom:24px;box-shadow:0 0 20px rgba(6,182,212,0.1)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:16px">
+            <div style="display:flex;align-items:center;gap:12px">
+                <div style="background:#06b6d4;color:#000;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <h2 style="font-size:18px;font-weight:700;color:#06b6d4;margin:0">Full Data Access Granted</h2>
+            </div>
+            <a href="data:text/json;charset=utf-8,{{ profile | tojson | urlencode }}" download="my_dsar_data.json" 
+               style="background:#06b6d4;color:#000;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;transition:0.2s">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download Raw JSON
+            </a>
+        </div>
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:20px;line-height:1.6">Your request for data access has been approved by the administrator. Below is the full record of all personal data tied to your encrypted vault profile.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+            {% set data_fields = [
+                ('Full Name', profile.get('full_name')),
+                ('Date of Birth', profile.get('date_of_birth')),
+                ('Phone', profile.get('phone')),
+                ('Address', profile.get('address')),
+                ('Aadhaar Number', '●●●●-●●●●-' ~ profile.get('aadhaar_number','')[-4:] if profile.get('aadhaar_number') else None),
+                ('PAN Number', profile.get('pan_number','')[:3] ~ '*****' ~ profile.get('pan_number','')[-2:] if profile.get('pan_number') else None),
+            ] %}
+            {% for label, value in data_fields %}
+            <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;border:1px solid rgba(255,255,255,0.06)">
+                <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">{{ label }}</div>
+                <div style="font-size:14px;color:{{ '#e2e8f0' if value else '#374151' }}">{{ value if value else 'Not provided' }}</div>
+            </div>
+            {% endfor %}
+            {# Custom schema fields #}
+            {% for key, val in profile.items() %}
+            {% if key.startswith('custom_') and val %}
+            <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;border:1px solid rgba(255,255,255,0.06)">
+                <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">{{ key.replace('custom_','').replace('_',' ') }}</div>
+                <div style="font-size:14px;color:#e2e8f0">{{ val }}</div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        <p style="font-size:11px;color:#374151;margin-top:16px">Sensitive identifiers (Aadhaar/PAN) are partially masked for display. Full values are stored encrypted in the secure vault and never appear in logs.</p>
+    </div>
+    {% else %}
+    {# ─── Data Summary Card (without admin approval) ─── #}
+    <div style="background:#1a1d27;border:1px solid #2e3247;border-radius:14px;padding:28px;margin-bottom:24px">
+        <h2 style="font-size:15px;font-weight:600;color:#e2e8f0;margin-bottom:20px;display:flex;align-items:center;gap:10px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Your Data Summary
+        </h2>
+        <p style="font-size:13px;color:#64748b;margin-bottom:16px">Submit an ACCESS request to get your full data report reviewed and released by the admin.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            {% set data_fields = [
+                ('Full Name', profile.get('full_name')),
+                ('Date of Birth', profile.get('date_of_birth')),
+                ('Phone', profile.get('phone')),
+                ('Address', profile.get('address')),
+                ('Aadhaar Number', '●●●●-●●●●-' ~ profile.get('aadhaar_number','')[-4:] if profile.get('aadhaar_number') else None),
+                ('PAN Number', profile.get('pan_number','')[:3] ~ '*****' if profile.get('pan_number') else None),
+            ] %}
+            {% for label, value in data_fields %}
+            <div style="background:#22263a;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">{{ label }}</div>
+                <div style="font-size:14px;color:{{ '#e2e8f0' if value else '#374151' }}">{{ value if value else 'Not provided' }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ─── ERASURE: Approved → Field Selection Form ─── #}
+    {% if erasure_approved %}
+    <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.3);border-radius:14px;padding:28px;margin-bottom:24px">
+        <h2 style="font-size:15px;font-weight:600;color:#ef4444;margin-bottom:8px">🗑 Select Data to Erase</h2>
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:20px">Your erasure request has been approved. Select exactly which data fields you want permanently deleted, or choose "Erase All". This cannot be undone once the admin confirms.</p>
+        <form method="POST" action="{{ url_for('dashboard.dsar_select_fields', req_id=erasure_approved.id) }}"
+              onsubmit="return confirm('Are you sure about your selection? This data cannot be recovered.')">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px">
+                {% set erasable_fields = [
+                    ('full_name', 'Full Name'),
+                    ('date_of_birth', 'Date of Birth'),
+                    ('phone', 'Phone Number'),
+                    ('address', 'Residential Address'),
+                    ('aadhaar_number', 'Aadhaar Number'),
+                    ('pan_number', 'PAN Number'),
+                ] %}
+                {% for key, label in erasable_fields %}
+                {% if profile.get(key) %}
+                <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#22263a;border:1px solid #2e3247;border-radius:8px;cursor:pointer;font-size:13px;color:#e2e8f0">
+                    <input type="checkbox" name="fields" value="{{ key }}" style="accent-color:#ef4444;width:16px;height:16px">
+                    {{ label }}
+                </label>
+                {% endif %}
+                {% endfor %}
+                {# Custom schema fields #}
+                {% for k, v in profile.items() %}
+                {% if k.startswith('custom_') and v %}
+                <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#22263a;border:1px solid #2e3247;border-radius:8px;cursor:pointer;font-size:13px;color:#e2e8f0">
+                    <input type="checkbox" name="fields" value="{{ k }}" style="accent-color:#ef4444;width:16px;height:16px">
+                    {{ k.replace('custom_','').replace('_',' ').title() }}
+                </label>
+                {% endif %}
+                {% endfor %}
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;padding:12px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px">
+                <input type="checkbox" name="erase_all" id="erase_all" style="accent-color:#ef4444;width:18px;height:18px">
+                <label for="erase_all" style="font-size:14px;font-weight:600;color:#ef4444;cursor:pointer">Erase All My Personal Data</label>
+            </div>
+            <button type="submit" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:10px 20px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600">
+                Submit Selection for Admin Confirmation
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    {# ─── ERASURE: fields_selected → waiting ─── #}
+    {% if erasure_pending_final %}
+    <div style="background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:24px;margin-bottom:24px">
+        <h3 style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:8px">⏳ Erasure Under Final Admin Review</h3>
+        <p style="font-size:13px;color:#94a3b8">Your field selection has been received. The admin will review and confirm the permanent deletion. You will see the result here once it is processed.</p>
+        {% set sel = erasure_pending_final.selected_fields | from_json %}
+        <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px">
+            {% if 'all' in sel %}
+                <span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:3px 10px;border-radius:12px;font-size:12px">ALL DATA</span>
+            {% else %}
+                {% for f in sel %}
+                <span style="background:#22263a;color:#94a3b8;padding:3px 10px;border-radius:12px;font-size:12px;border:1px solid #2e3247">{{ f.replace('custom_','').replace('_',' ').title() }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ─── Request Buttons ─── #}
+    {% set has_pending_access   = past_requests | selectattr('request_type','equalto','ACCESS')   | selectattr('status','in',['pending','completed']) | list | length > 0 %}
+    {% set has_pending_erasure  = past_requests | selectattr('request_type','equalto','ERASURE')  | selectattr('status','in',['pending','approved','fields_selected']) | list | length > 0 %}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:32px">
+        <div style="background:#1a1d27;border:1px solid #2e3247;border-radius:14px;padding:24px">
+            <h3 style="font-size:14px;font-weight:600;color:#818cf8;margin-bottom:10px">📋 Request Data Access</h3>
+            <p style="font-size:13px;color:#94a3b8;margin-bottom:18px;line-height:1.6">Submit a formal access request. Admin will review and release your full data summary.</p>
+            {% if has_pending_access %}
+            <div style="font-size:12px;color:#64748b;padding:8px 12px;background:#22263a;border-radius:6px">A request is already active or completed — check history below.</div>
+            {% else %}
+            <form method="POST" action="{{ url_for('dashboard.dsar_submit') }}">
+                <input type="hidden" name="request_type" value="ACCESS">
+                <button type="submit" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.4);color:#818cf8;padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Submit ACCESS Request</button>
+            </form>
+            {% endif %}
+        </div>
+        <div style="background:#1a1d27;border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:24px">
+            <h3 style="font-size:14px;font-weight:600;color:#ef4444;margin-bottom:10px">🗑 Request Data Erasure</h3>
+            <p style="font-size:13px;color:#94a3b8;margin-bottom:18px;line-height:1.6">Request deletion of your personal data. You will select exactly which fields after admin approves.</p>
+            {% if has_pending_erasure %}
+            <div style="font-size:12px;color:#64748b;padding:8px 12px;background:#22263a;border-radius:6px">An erasure request is already in progress — see above.</div>
+            {% else %}
+            <form method="POST" action="{{ url_for('dashboard.dsar_submit') }}">
+                <input type="hidden" name="request_type" value="ERASURE">
+                <button type="submit" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Submit ERASURE Request</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ─── Request History ─── #}
+    <div style="background:#1a1d27;border:1px solid #2e3247;border-radius:14px;overflow:hidden">
+        <div style="padding:18px 24px;border-bottom:1px solid #2e3247">
+            <h2 style="font-size:15px;font-weight:600;color:#e2e8f0">Request History</h2>
+        </div>
+        {% if past_requests %}
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+                <tr style="background:#22263a">
+                    <th style="padding:12px 20px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;font-weight:500">Type</th>
+                    <th style="padding:12px 20px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;font-weight:500">Status</th>
+                    <th style="padding:12px 20px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;font-weight:500">Submitted</th>
+                    <th style="padding:12px 20px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;font-weight:500">Admin Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in past_requests %}
+                <tr style="border-top:1px solid rgba(46,50,71,0.5)">
+                    <td style="padding:14px 20px">
+                        {% if req.request_type == 'ERASURE' %}
+                        <span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:500">ERASURE</span>
+                        {% else %}
+                        <span style="background:rgba(99,102,241,0.1);color:#818cf8;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:500">ACCESS</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding:14px 20px">
+                        {% if req.status == 'completed' %}<span style="color:#22c55e">✓ Completed</span>
+                        {% elif req.status == 'denied' %}<span style="color:#ef4444">✗ Denied</span>
+                        {% elif req.status == 'approved' %}<span style="color:#818cf8">✓ Approved — Select fields above</span>
+                        {% elif req.status == 'fields_selected' %}<span style="color:#f59e0b">⏳ Pending Final Admin Review</span>
+                        {% elif req.status == 'expired' %}<span style="color:#64748b">Expired (Logged out)</span>
+                        {% else %}<span style="color:#f59e0b">⏳ Pending</span>{% endif %}
+                    </td>
+                    <td style="padding:14px 20px;color:#64748b">{{ req.requested_at.strftime('%d %b %Y, %H:%M') }}</td>
+                    <td style="padding:14px 20px;color:#94a3b8">{{ req.admin_note or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="padding:40px;text-align:center;color:#4b5563">No requests submitted yet.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

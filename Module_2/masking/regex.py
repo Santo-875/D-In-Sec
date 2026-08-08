@@ -29,3 +29,47 @@ def mask_structured_pii(text: str) -> tuple[str, list[dict]]:
                 text = pattern.sub(f"[REDACTED_{pii_type}]", text)
 
     return text, entities_found
+
+
+def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list]:
+    """
+    Dynamic masking using admin-defined FieldSchema records.
+    Falls back to mask_structured_pii if no schema fields are provided.
+
+    schema_fields: list of dicts with keys:
+        - regex_pattern (str)
+        - mask_label (str)  e.g. '[REDACTED_AADHAAR]'
+        - pii_category (str) e.g. 'AADHAAR'
+    """
+    if not schema_fields:
+        return mask_structured_pii(text)
+
+    entities_found = []
+    for field in schema_fields:
+        regex = field.get('regex_pattern')
+        mask  = field.get('mask_label') or f"[REDACTED_{field.get('pii_category', 'PII')}]"
+        cat   = field.get('pii_category', 'CUSTOM')
+
+        if not regex:
+            continue
+        try:
+            pattern = re.compile(regex)
+            matches = pattern.findall(text)
+            if matches:
+                entities_found.append({'pii_type': cat, 'count': len(matches)})
+                text = pattern.sub(mask, text)
+        except re.error:
+            # Skip invalid regex patterns
+            continue
+
+    # Always run IP hashing regardless of schema
+    ip_pattern = PII_PATTERNS['IP_ADDRESS']
+    ip_matches = ip_pattern.findall(text)
+    if ip_matches:
+        entities_found.append({'pii_type': 'IP_ADDRESS', 'count': len(ip_matches)})
+        text = ip_pattern.sub(
+            lambda m: f"[HASHED_IP_{hashlib.sha256((m.group(0) + SECRET_SALT).encode()).hexdigest()[:16]}]",
+            text
+        )
+
+    return text, entities_found

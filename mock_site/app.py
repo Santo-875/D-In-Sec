@@ -12,6 +12,7 @@ to both stdout and logs/system.log.
 """
 
 import os
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for
@@ -58,6 +59,10 @@ def create_app():
 
     # ── Register Blueprints ─────────────────────────────────────
     register_blueprints(app)
+
+    # Jinja2 custom filter: parse JSON string in templates
+    import json as _json
+    app.jinja_env.filters['from_json'] = lambda s: _json.loads(s) if s else []
 
     # ── Root redirect ───────────────────────────────────────────
     @app.route('/')

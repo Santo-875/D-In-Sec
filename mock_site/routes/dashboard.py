@@ -12,11 +12,12 @@ SECURITY (Phase 1, 3, 4):
 import os
 import re
 import uuid
+import json
 import logging
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, send_file
 from flask_login import login_required, current_user
-from models import db, Document
+from models import db, Document, DsarRequest, FieldSchema
 from vault.service import (
     vault_store_profile, vault_get_profile,
     vault_update_profile, vault_store_file, vault_get_file,
@@ -59,10 +60,14 @@ def index():
         f"event=DASHBOARD_ACCESS actor_id={current_user.id} status=success"
     )
 
+    # Load admin-defined schema fields for dynamic profile form
+    schema_fields = FieldSchema.query.order_by(FieldSchema.sort_order, FieldSchema.id).all()
+
     return render_template('dashboard.html',
                            documents=documents,
                            doc_types=VALID_DOC_TYPES,
-                           profile=profile)
+                           profile=profile,
+                           schema_fields=schema_fields)
 
 
 @dashboard_bp.route('/profile', methods=['POST'])
@@ -102,6 +107,11 @@ def update_profile():
         'aadhaar_number': aadhaar_number or existing.get('aadhaar_number', ''),
         'pan_number':     pan_number or existing.get('pan_number', ''),
     }
+
+    # Merge custom schema fields (admin-defined)
+    for key, value in request.form.items():
+        if key.startswith('custom_'):
+            profile_data[key] = value.strip() or existing.get(key, '')
 
     if current_user.profile_token:
         # Update existing vault token
@@ -222,3 +232,86 @@ def verify_document(doc_id):
         flash('Document has been verified!', 'success')
 
     return redirect(url_for('dashboard.index'))
+
+
+# ── DSAR (Data Subject Access Request) ────────────────────────────────────────
+
+@dashboard_bp.route('/dsar')
+@login_required
+def dsar():
+    """DSAR page — show data summary and allow submitting requests."""
+    profile = vault_get_profile(current_user.profile_token, current_user.id)
+    past_requests = DsarRequest.query.filter_by(user_id=current_user.id)\
+        .order_by(DsarRequest.requested_at.desc()).all()
+
+    logger.info(
+        f"event=DSAR_PAGE_VIEW actor_id={current_user.id}"
+    )
+    return render_template('dashboard_dsar.html',
+                           profile=profile,
+                           past_requests=past_requests)
+
+
+@dashboard_bp.route('/dsar/request', methods=['POST'])
+@login_required
+def dsar_submit():
+    """Submit an ACCESS or ERASURE DSAR request."""
+    request_type = request.form.get('request_type', '').strip().upper()
+    if request_type not in ('ACCESS', 'ERASURE'):
+        flash('Invalid request type.', 'error')
+        return redirect(url_for('dashboard.dsar'))
+
+    # Only one pending request of each type at a time
+    existing = DsarRequest.query.filter_by(
+        user_id=current_user.id,
+        request_type=request_type,
+        status='pending'
+    ).first()
+    if existing:
+        flash(f'You already have a pending {request_type} request.', 'warning')
+        return redirect(url_for('dashboard.dsar'))
+
+    dsar_req = DsarRequest(
+        user_id=current_user.id,
+        request_type=request_type,
+        status='pending',
+    )
+    db.session.add(dsar_req)
+    db.session.commit()
+
+    logger.info(
+        f"event=DSAR_REQUEST actor_id={current_user.id} "
+        f"request_type={request_type} status=pending"
+    )
+    flash(f'Your {request_type} request has been submitted and is under review.', 'success')
+    return redirect(url_for('dashboard.dsar'))
+
+
+@dashboard_bp.route('/dsar/<int:req_id>/select_fields', methods=['POST'])
+@login_required
+def dsar_select_fields(req_id):
+    """User submits field selection for an approved ERASURE request."""
+    dsar = db.session.get(DsarRequest, req_id)
+    if not dsar or dsar.user_id != current_user.id or dsar.status != 'approved':
+        flash('This request is not available for field selection.', 'error')
+        return redirect(url_for('dashboard.dsar'))
+
+    selected = request.form.getlist('fields')  # list of field keys
+    erase_all = request.form.get('erase_all') == 'on'
+
+    if erase_all:
+        selected = ['all']
+    elif not selected:
+        flash('Please select at least one field to erase, or choose "Erase All".', 'warning')
+        return redirect(url_for('dashboard.dsar'))
+
+    dsar.selected_fields = json.dumps(selected)
+    dsar.status = 'fields_selected'
+    db.session.commit()
+
+    logger.info(
+        f"event=DSAR_REQUEST actor_id={current_user.id} "
+        f"request_type=ERASURE status=fields_selected fields={selected}"
+    )
+    flash('Your selection has been submitted. Waiting for admin final confirmation.', 'success')
+    return redirect(url_for('dashboard.dsar'))

@@ -1,0 +1,54 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Admin Dashboard — D-In-Sec{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-val">{{ total_users }}</div>
+        <div class="stat-label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-val" style="color:#22c55e">{{ active_users }}</div>
+        <div class="stat-label">Active Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-val" style="color:#f59e0b">{{ pending_docs }}</div>
+        <div class="stat-label">Pending Documents</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-val" style="color:#818cf8">{{ verified_docs }}</div>
+        <div class="stat-label">Verified Documents</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-val" style="color:#38bdf8">{{ pending_dsars }}</div>
+        <div class="stat-label">Pending DSARs</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-val">{{ total_fields }}</div>
+        <div class="stat-label">Schema Fields</div>
+    </div>
+</div>
+
+<div class="section-header">
+    <div>
+        <div class="section-title">Recent Audit Events</div>
+        <div class="section-sub">Last 20 entries from system.log — no raw PII</div>
+    </div>
+    <a href="{{ url_for('admin.audit') }}" class="btn btn-primary btn-sm">View All Logs</a>
+</div>
+
+<div class="log-viewer">
+    {% for line in audit_lines %}
+        <div class="log-line
+            {% if 'VAULT_FAIL' in line or 'FAIL' in line or 'ERROR' in line %}log-line-fail
+            {% elif 'WARNING' in line %}log-line-warn
+            {% elif 'VAULT_ACCESS' in line or 'VAULT_STORE' in line %}log-line-vault
+            {% elif 'DSAR' in line %}log-line-dsar
+            {% elif 'success' in line or 'SUCCESS' in line %}log-line-success
+            {% endif %}">{{ line }}</div>
+    {% else %}
+        <div style="color:#4b5563">No log entries yet.</div>
+    {% endfor %}
+</div>
+{% endblock %}

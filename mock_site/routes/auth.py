@@ -10,7 +10,7 @@ import hashlib
 import logging
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
-from models import db, User
+from models import db, User, DsarRequest
 
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger('mock_site')
@@ -25,7 +25,7 @@ def _hash_value(val: str) -> str:
 def login():
     """Render login form and authenticate user."""
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard.index'))
+        return redirect(url_for('admin.dashboard')) if current_user.is_admin else redirect(url_for('dashboard.index'))
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -38,7 +38,7 @@ def login():
             # Structured log — actor_id only, no username/email
             logger.info(f"event=LOGIN_SUCCESS actor_id={user.id}")
             flash('Login successful! Welcome back.', 'success')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('admin.dashboard')) if user.is_admin else redirect(url_for('dashboard.index'))
         else:
             # Hashed username for correlation without exposing value
             logger.warning(
@@ -53,7 +53,7 @@ def login():
 def signup():
     """Render signup form and create new user account."""
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard.index'))
+        return redirect(url_for('admin.dashboard')) if current_user.is_admin else redirect(url_for('dashboard.index'))
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -95,8 +95,20 @@ def signup():
 @auth_bp.route('/logout')
 @login_required
 def logout():
-    """Log out the current user."""
+    """Log out the current user and expire any active DSAR access reports."""
     actor_id = current_user.id
+    
+    # Security: Revoke access to the full data report upon logout
+    active_dsars = DsarRequest.query.filter_by(
+        user_id=actor_id, 
+        request_type='ACCESS', 
+        status='completed'
+    ).all()
+    for req in active_dsars:
+        req.status = 'expired'
+    if active_dsars:
+        db.session.commit()
+
     logout_user()
     logger.info(f"event=LOGOUT actor_id={actor_id}")
     flash('You have been logged out.', 'info')

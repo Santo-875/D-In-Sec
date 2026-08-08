@@ -1,0 +1,71 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Document Review — Admin{% endblock %}
+{% block page_title %}Document Review Queue{% endblock %}
+
+{% block content %}
+<div class="section-header">
+    <div>
+        <div class="section-title">All Submitted Documents</div>
+        <div class="section-sub">Review and approve or reject uploaded documents. No raw file content is shown — files are encrypted in the vault.</div>
+    </div>
+</div>
+
+<div class="admin-table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Doc ID</th>
+                <th>User</th>
+                <th>Type</th>
+                <th>File Token</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Admin Note</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in docs %}
+            {% set doc = row[0] %}
+            {% set username = row[1] %}
+            <tr>
+                <td style="color:#64748b">{{ doc.id }}</td>
+                <td><strong>{{ username }}</strong><br><small style="color:#64748b">user_id={{ doc.user_id }}</small></td>
+                <td>{{ doc.doc_type }}</td>
+                <td style="font-family:monospace;font-size:11px;color:#64748b">{{ doc.file_token[:12] }}...</td>
+                <td style="color:#64748b;font-size:12px">{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}</td>
+                <td>
+                    {% if doc.status == 'Verified' %}
+                        <span class="badge badge-green">Verified</span>
+                    {% elif doc.status == 'Rejected' %}
+                        <span class="badge badge-red">Rejected</span>
+                    {% else %}
+                        <span class="badge badge-amber">Pending</span>
+                    {% endif %}
+                </td>
+                <td style="font-size:12px;color:#94a3b8">{{ doc.admin_note or '—' }}</td>
+                <td>
+                    {% if doc.status == 'Pending' %}
+                    <button class="btn btn-sm btn-success" onclick="document.getElementById('verify-{{ doc.id }}').style.display='block'">Review</button>
+                    <div id="verify-{{ doc.id }}" style="display:none;margin-top:10px;padding:12px;background:#0f1117;border-radius:8px;border:1px solid #2e3247">
+                        <form method="POST" action="{{ url_for('admin.verify_document', doc_id=doc.id) }}">
+                            <textarea name="admin_note" placeholder="Optional note..." rows="2"
+                                style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
+                            <div style="display:flex;gap:8px">
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">✓ Approve</button>
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">✗ Reject</button>
+                            </div>
+                        </form>
+                    </div>
+                    {% else %}
+                    <span style="font-size:12px;color:#4b5563">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" style="text-align:center;color:#64748b;padding:40px">No documents submitted yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

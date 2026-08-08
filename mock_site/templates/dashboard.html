@@ -24,11 +24,19 @@
                 <span>Documents</span>
                 <span class="badge">{{ documents|length }}</span>
             </a>
-            <a href="#upload-section" class="sidebar-link" data-section="upload" id="nav-upload">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span>Upload</span>
+            <a href="{{ url_for('dashboard.dsar') }}" class="sidebar-link" id="nav-dsar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span>My Data Rights</span>
             </a>
         </nav>
+        {% if current_user.is_admin %}
+        <div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,0.06);margin-top:8px">
+            <a href="{{ url_for('admin.dashboard') }}" style="display:flex;align-items:center;gap:8px;font-size:12px;color:#818cf8;text-decoration:none;padding:8px 10px;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Admin Panel
+            </a>
+        </div>
+        {% endif %}
         <div class="sidebar-footer">
             <div class="verification-summary">
                 {% set verified_count = documents|selectattr('status', 'equalto', 'Verified')|list|length %}
@@ -105,6 +113,42 @@
                             <textarea id="address" name="address" rows="2" placeholder="e.g. 42, MG Road, Koramangala, Bangalore 560001">{{ profile.address or '' }}</textarea>
                         </div>
                     </div>
+                    {# ── Dynamic admin-defined schema fields ── #}
+                    {% for field in schema_fields %}
+                    <div class="form-group {% if field.field_type == 'textarea' %}form-group-full{% endif %}">
+                        <label for="custom_{{ field.field_name }}">
+                            {{ field.field_label }}
+                            {% if field.is_required %}<span style="color:#ef4444">*</span>{% endif %}
+                            {% if field.pii_category %}<span style="font-size:10px;background:rgba(245,158,11,0.15);color:#f59e0b;padding:1px 6px;border-radius:8px;margin-left:4px">{{ field.pii_category }}</span>{% endif %}
+                        </label>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            {% if field.field_type == 'date' %}
+                                <input type="date" id="custom_{{ field.field_name }}" name="custom_{{ field.field_name }}"
+                                    value="{{ profile.get('custom_' + field.field_name, '') }}"
+                                    {% if field.is_required %}required{% endif %}>
+                            {% elif field.field_type == 'email' %}
+                                <input type="email" id="custom_{{ field.field_name }}" name="custom_{{ field.field_name }}"
+                                    value="{{ profile.get('custom_' + field.field_name, '') }}"
+                                    placeholder="{{ field.placeholder or '' }}"
+                                    {% if field.is_required %}required{% endif %}>
+                            {% elif field.field_type == 'phone' %}
+                                <input type="tel" id="custom_{{ field.field_name }}" name="custom_{{ field.field_name }}"
+                                    value="{{ profile.get('custom_' + field.field_name, '') }}"
+                                    placeholder="{{ field.placeholder or '' }}"
+                                    {% if field.is_required %}required{% endif %}>
+                            {% elif field.field_type == 'file' %}
+                                <input type="file" id="custom_{{ field.field_name }}" name="custom_{{ field.field_name }}">
+                            {% else %}
+                                <input type="text" id="custom_{{ field.field_name }}" name="custom_{{ field.field_name }}"
+                                    value="{{ profile.get('custom_' + field.field_name, '') }}"
+                                    placeholder="{{ field.placeholder or '' }}"
+                                    {% if field.is_required %}required{% endif %}>
+                            {% endif %}
+                        </div>
+                        {% if field.help_text %}<small style="color:#64748b;font-size:11px;margin-top:4px;display:block">{{ field.help_text }}</small>{% endif %}
+                    </div>
+                    {% endfor %}
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary" id="save-profile-btn">

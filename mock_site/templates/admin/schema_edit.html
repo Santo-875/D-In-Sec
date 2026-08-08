@@ -1,0 +1,155 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Edit Field: {{ field.field_label }} — Admin{% endblock %}
+{% block page_title %}Edit Field Schema{% endblock %}
+
+{% block content %}
+<div style="max-width:800px;margin:0 auto">
+    <div style="margin-bottom:24px"><a href="{{ url_for('admin.schema') }}" style="color:#818cf8;text-decoration:none;font-size:14px">← Back to Schema Builder</a></div>
+    
+    <div class="section-header"><div class="section-title">Edit Field: {{ field.field_label }}</div></div>
+    
+    <div class="admin-form">
+        <form method="POST" action="{{ url_for('admin.schema_edit', field_id=field.id) }}" id="schema-form">
+
+            <!-- Basic info -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Field Label <span style="color:#ef4444">*</span></label>
+                    <input type="text" name="field_label" id="field_label" value="{{ field.field_label }}" required>
+                    <small style="color:#64748b;font-size:11px">Name shown to the user</small>
+                </div>
+                <div class="form-group">
+                    <label>Internal Key</label>
+                    <input type="text" value="{{ field.field_name }}" disabled style="opacity:0.6;background:#1a1d27">
+                    <small style="color:#64748b;font-size:11px">Internal keys cannot be changed after creation</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Input Type</label>
+                    <select name="field_type">
+                        <option value="text" {% if field.field_type == 'text' %}selected{% endif %}>Text</option>
+                        <option value="email" {% if field.field_type == 'email' %}selected{% endif %}>Email</option>
+                        <option value="phone" {% if field.field_type == 'phone' %}selected{% endif %}>Phone</option>
+                        <option value="date" {% if field.field_type == 'date' %}selected{% endif %}>Date</option>
+                        <option value="file" {% if field.field_type == 'file' %}selected{% endif %}>File Upload</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Sort Order</label>
+                    <input type="number" name="sort_order" value="{{ field.sort_order }}" min="0">
+                    <small style="color:#64748b;font-size:11px">Lower = shown first</small>
+                </div>
+            </div>
+
+            <div class="form-row full">
+                <div class="form-group">
+                    <label>Placeholder / Example</label>
+                    <input type="text" name="placeholder" value="{{ field.placeholder or '' }}">
+                </div>
+            </div>
+
+            <div class="form-row full">
+                <div class="form-group">
+                    <label>Help Text</label>
+                    <input type="text" name="help_text" value="{{ field.help_text or '' }}">
+                </div>
+            </div>
+
+            <div style="margin-bottom:16px">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#94a3b8">
+                    <input type="checkbox" name="is_required" {% if field.is_required %}checked{% endif %}> Required field
+                </label>
+            </div>
+
+            <!-- Sensitive toggle -->
+            <div style="border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:16px;background:rgba(245,158,11,0.04);margin-bottom:16px">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#f59e0b;font-weight:600;margin-bottom:4px">
+                    <input type="checkbox" name="is_sensitive" id="is_sensitive" onchange="toggleSensitive(this.checked)" {% if field.pii_category %}checked{% endif %}>
+                    🔒 This field contains sensitive personal data (PII)
+                </label>
+                <p style="font-size:11px;color:#64748b;margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
+            </div>
+
+            <!-- Sensitive options (hidden unless toggled) -->
+            <div id="sensitive-options" style="display:{% if field.pii_category %}block{% else %}none{% endif %};border:1px solid #2e3247;border-radius:10px;padding:16px;margin-bottom:16px;background:#0f1117">
+                <div class="form-group" style="margin-bottom:16px">
+                    <label>PII Category Name</label>
+                    <input type="text" name="pii_category" value="{{ field.pii_category or '' }}" placeholder="e.g. AADHAAR, PAN, EMPLOYEE_ID">
+                    <small style="color:#64748b;font-size:11px">Used for masking label: [REDACTED_YOUR_CATEGORY]</small>
+                </div>
+
+                <div class="form-group" style="margin-bottom:16px">
+                    <label>Pick a Preset Format — or leave blank for custom</label>
+                    <select name="preset_type" id="preset_type" onchange="updatePresetHint(this.value)">
+                        <option value="">— Select a common type —</option>
+                        <option value="aadhaar">Aadhaar (12 digits, e.g. 1234-5678-9012)</option>
+                        <option value="pan">PAN Card (e.g. ABCDE1234F)</option>
+                        <option value="phone">Indian Phone (10-digit mobile)</option>
+                        <option value="email">Email Address</option>
+                        <option value="dob">Date (DD/MM/YYYY or DD-MM-YYYY)</option>
+                        <option value="passport">Passport Number (e.g. A1234567)</option>
+                        <option value="voter_id">Voter ID (e.g. ABC1234567)</option>
+                        <option value="ifsc">IFSC Code (e.g. SBIN0001234)</option>
+                        <option value="credit_card">Credit / Debit Card Number</option>
+                        <option value="pincode">PIN Code (6 digits)</option>
+                        <option value="name">Person Name</option>
+                        <option value="address">Address Text</option>
+                        <option value="custom">Custom (enter regex below)</option>
+                    </select>
+                    <small id="preset-hint" style="color:#818cf8;font-size:11px;margin-top:6px;display:block"></small>
+                </div>
+
+                <!-- Custom regex — only shown if preset = custom -->
+                <div id="custom-regex-group" style="display:none" class="form-group">
+                    <label>Custom Regex Pattern</label>
+                    <input type="text" name="custom_regex" id="custom_regex" value="{{ field.regex_pattern or '' }}" placeholder="e.g. \b[A-Z]{2}\d{6}\b">
+                    <small style="color:#64748b;font-size:11px">Advanced: enter a regular expression for validation and masking</small>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleSensitive(on) {
+    document.getElementById('sensitive-options').style.display = on ? 'block' : 'none';
+}
+
+const HINTS = {
+    aadhaar:     'Auto-regex: 12-digit number, with or without spaces/dashes (1234-5678-9012)',
+    pan:         'Auto-regex: 5 letters + 4 digits + 1 letter (ABCDE1234F)',
+    phone:       'Auto-regex: 10-digit Indian mobile starting 6-9',
+    email:       'Auto-regex: standard email address format',
+    dob:         'Auto-regex: DD/MM/YYYY or DD-MM-YYYY',
+    passport:    'Auto-regex: 1 letter + 7 digits (A1234567)',
+    voter_id:    'Auto-regex: 3 letters + 7 digits (ABC1234567)',
+    ifsc:        'Auto-regex: 4 letters + 0 + 6 alphanumeric (SBIN0001234)',
+    credit_card: 'Auto-regex: 16-digit card number with optional spaces/dashes',
+    pincode:     'Auto-regex: 6-digit Indian PIN code',
+    name:        'Auto-regex: alphabetic name (2-50 characters)',
+    address:     'Auto-regex: any text 10-200 characters',
+    custom:      'Enter your own regex pattern below',
+};
+
+function updatePresetHint(val) {
+    const hint = document.getElementById('preset-hint');
+    const customGroup = document.getElementById('custom-regex-group');
+    hint.textContent = HINTS[val] || '';
+    customGroup.style.display = (val === 'custom') ? 'block' : 'none';
+}
+
+// On load, if there's an existing custom regex but no preset matched, set to custom
+window.onload = function() {
+    {% if field.pii_category %}
+        // If we have a pattern, we don't automatically know which preset it was.
+        // We'll set it to 'custom' to display the pattern so they don't lose it.
+        document.getElementById('preset_type').value = 'custom';
+        updatePresetHint('custom');
+    {% endif %}
+};
+</script>
+{% endblock %}
