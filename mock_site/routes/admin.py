@@ -14,7 +14,11 @@ from flask_login import login_required, current_user
 from models import db, User, Document, FieldSchema, DsarRequest
 from vault.service import vault_get_profile, vault_get_file
 from vault.token_manager import VaultAccessError
+import csv
+from io import StringIO
 import os
+import hashlib
+from flask import Response
 
 admin_bp = Blueprint('admin', __name__)
 logger = logging.getLogger('mock_site')
@@ -63,6 +67,134 @@ def dashboard():
                            pending_dsars=pending_dsars,
                            total_fields=total_fields,
                            audit_lines=audit_lines)
+
+
+@admin_bp.route('/compliance/export')
+@admin_required
+def compliance_export():
+    """Generate a DPDP Act Compliance Audit Report CSV."""
+    si = StringIO()
+    cw = csv.writer(si)
+
+    cw.writerow(['D-In-Sec DPDP Compliance Audit Report'])
+    cw.writerow(['Generated At', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')])
+    cw.writerow(['Admin ID', current_user.id])
+    cw.writerow([])
+
+    # Metrics computation
+    total_users = User.query.filter_by(is_admin=False).count()
+    active_users = User.query.filter_by(is_admin=False, is_active=True).count()
+    suspended_users = total_users - active_users
+
+    total_fields = FieldSchema.query.count()
+    sensitive_fields = FieldSchema.query.filter(FieldSchema.pii_category.isnot(None)).count()
+    non_sensitive_fields = total_fields - sensitive_fields
+
+    pending_docs = Document.query.filter_by(status='Pending').count()
+    verified_docs = Document.query.filter_by(status='Verified').count()
+    rejected_docs = Document.query.filter_by(status='Rejected').count()
+
+    # DSAR Access
+    access_requests = DsarRequest.query.filter_by(request_type='ACCESS')
+    total_access = access_requests.count()
+    pending_access = access_requests.filter_by(status='pending').count()
+    completed_access = access_requests.filter_by(status='completed').count()
+    denied_access = access_requests.filter_by(status='denied').count()
+    expired_access = access_requests.filter_by(status='expired').count()
+
+    # DSAR Erasure
+    erasure_requests = DsarRequest.query.filter_by(request_type='ERASURE')
+    total_erasure = erasure_requests.count()
+    pending_erasure = erasure_requests.filter_by(status='pending').count()
+    approved_erasure = erasure_requests.filter_by(status='approved').count()
+    fields_selected_erasure = erasure_requests.filter_by(status='fields_selected').count()
+    completed_erasure = erasure_requests.filter_by(status='completed').count()
+    denied_erasure = erasure_requests.filter_by(status='denied').count()
+
+    # Write Category Header
+    cw.writerow(['Metric Category', 'Metric Name', 'Count / Value'])
+    
+    # User stats
+    cw.writerow(['User Management', 'Total Registered Users (excluding admins)', total_users])
+    cw.writerow(['User Management', 'Active Users', active_users])
+    cw.writerow(['User Management', 'Suspended Users', suspended_users])
+    
+    # Schema builder stats
+    cw.writerow(['PII Configuration', 'Total Custom Schema Fields Defined', total_fields])
+    cw.writerow(['PII Configuration', 'Sensitive PII Fields (Masked in logs)', sensitive_fields])
+    cw.writerow(['PII Configuration', 'Non-Sensitive Custom Fields', non_sensitive_fields])
+
+    # Document stats
+    cw.writerow(['Document Verification', 'Total Verified Documents', verified_docs])
+    cw.writerow(['Document Verification', 'Total Pending Documents', pending_docs])
+    cw.writerow(['Document Verification', 'Total Rejected Documents', rejected_docs])
+
+    # DSAR Access requests
+    cw.writerow(['DSAR Access Requests', 'Total Access Requests Submitted', total_access])
+    cw.writerow(['DSAR Access Requests', 'Completed Access Requests (Released)', completed_access])
+    cw.writerow(['DSAR Access Requests', 'Pending Access Requests', pending_access])
+    cw.writerow(['DSAR Access Requests', 'Denied Access Requests', denied_access])
+    cw.writerow(['DSAR Access Requests', 'Expired Access Requests (Session Revoked)', expired_access])
+
+    # DSAR Erasure requests
+    cw.writerow(['DSAR Erasure Requests', 'Total Erasure Requests Submitted', total_erasure])
+    cw.writerow(['DSAR Erasure Requests', 'Completed Erasures (Data Deleted)', completed_erasure])
+    cw.writerow(['DSAR Erasure Requests', 'Pending Erasure Reviews (Step 1)', pending_erasure])
+    cw.writerow(['DSAR Erasure Requests', 'Approved - Waiting for User Selection', approved_erasure])
+    cw.writerow(['DSAR Erasure Requests', 'Fields Selected - Awaiting Final Confirmation (Step 2)', fields_selected_erasure])
+    cw.writerow(['DSAR Erasure Requests', 'Denied Erasure Requests', denied_erasure])
+
+    # Average Resolution Time Calculation
+    resolved_access = access_requests.filter(DsarRequest.resolved_at.isnot(None)).all()
+    if resolved_access:
+        avg_access_secs = sum((r.resolved_at - r.requested_at).total_seconds() for r in resolved_access) / len(resolved_access)
+        avg_access_time = f"{avg_access_secs / 3600:.2f} hours"
+    else:
+        avg_access_time = "N/A"
+
+    resolved_erasure = erasure_requests.filter(DsarRequest.resolved_at.isnot(None)).all()
+    if resolved_erasure:
+        avg_erasure_secs = sum((r.resolved_at - r.requested_at).total_seconds() for r in resolved_erasure) / len(resolved_erasure)
+        avg_erasure_time = f"{avg_erasure_secs / 3600:.2f} hours"
+    else:
+        avg_erasure_time = "N/A"
+
+    cw.writerow(['Performance', 'Avg Resolution Time (Access)', avg_access_time])
+    cw.writerow(['Performance', 'Avg Resolution Time (Erasure)', avg_erasure_time])
+
+    cw.writerow([])
+    cw.writerow(['--- DETAILED AUDIT TRAIL (EXCEPTIONS & DENIALS) ---'])
+    cw.writerow(['Request ID', 'User ID', 'Type', 'Status', 'Admin Note', 'Requested At', 'Resolved At'])
+    
+    denied_all = DsarRequest.query.filter_by(status='denied').all()
+    for req in denied_all:
+        cw.writerow([req.id, req.user_id, req.request_type, req.status, req.admin_note, 
+                     req.requested_at.strftime('%Y-%m-%d %H:%M:%S'), 
+                     req.resolved_at.strftime('%Y-%m-%d %H:%M:%S') if req.resolved_at else 'N/A'])
+                     
+    if not denied_all:
+        cw.writerow(['No denied requests found'])
+
+    cw.writerow([])
+    cw.writerow(['--- DATA PROTECTION OFFICER (DPO) SIGN-OFF ---'])
+    cw.writerow(['I confirm that the above metrics are a true representation of DSAR compliance within the system.'])
+    cw.writerow(['Signature:', '_____________________________'])
+    cw.writerow(['Date:', '_____________________________'])
+    cw.writerow(['Name/Title:', '_____________________________'])
+    
+    # Generate cryptographic hash of the CSV so far
+    report_data = si.getvalue()
+    report_hash = hashlib.sha256(report_data.encode('utf-8')).hexdigest()
+    
+    cw.writerow([])
+    cw.writerow(['--- CRYPTOGRAPHIC INTEGRITY ---'])
+    cw.writerow(['Report SHA-256 Hash', report_hash])
+
+    logger.info(f"event=COMPLIANCE_REPORT_EXPORT admin_id={current_user.id}")
+
+    response = Response(si.getvalue(), mimetype='text/csv')
+    response.headers['Content-Disposition'] = f'attachment; filename=dpdp_compliance_report_{datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}.csv'
+    return response
 
 
 # ── User Management ──────────────────────────────────────────────────────────

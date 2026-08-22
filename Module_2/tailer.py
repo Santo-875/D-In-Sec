@@ -65,6 +65,10 @@ def main():
     print(f"Database: {DB_PATH}")
     print("Waiting for new log lines... (Ctrl+C to stop)\n")
 
+    # Cache schema fields to prevent high DB connection overhead on every log line
+    schema_fields = get_schema_fields(DB_PATH)
+    last_cache_time = time.time()
+
     for raw_line in tail_log_file(LOG_FILE_PATH):
         parsed = parse_log_line(raw_line)
         if parsed is None:
@@ -72,8 +76,11 @@ def main():
 
         tagged = detect_template(parsed)
 
-        # Dynamic query of active schema definitions
-        schema_fields = get_schema_fields(DB_PATH)
+        # Re-query schema fields every 10 seconds
+        current_time = time.time()
+        if current_time - last_cache_time > 10.0:
+            schema_fields = get_schema_fields(DB_PATH)
+            last_cache_time = current_time
 
         # Run masking on the raw_message using dynamic schema + ner
         masked_text, regex_found = mask_from_schema(tagged.raw_message, schema_fields)
