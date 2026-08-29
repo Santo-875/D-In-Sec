@@ -1,0 +1,75 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}SOC Dashboard — D-In-Sec{% endblock %}
+{% block page_title %}Security Operations Center{% endblock %}
+
+{% block content %}
+<div class="section-header">
+    <div>
+        <div class="section-title">Incident Alerts</div>
+        <div class="section-sub">AI-driven anomaly detection and CERT-In compliance drafts.</div>
+    </div>
+</div>
+
+<div class="admin-table-wrap">
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Incident Type</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>{{ alert.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>
+                    <span style="font-weight: 500;">{{ alert.incident_type }}</span><br>
+                    <small style="color:var(--muted); font-family: monospace;">{{ alert.masked_log_context[:60] }}...</small>
+                </td>
+                <td>
+                    {% if alert.severity == 'CRITICAL' %}
+                        <span class="badge badge-red">CRITICAL</span>
+                    {% elif alert.severity == 'HIGH' %}
+                        <span class="badge badge-amber">HIGH</span>
+                    {% elif alert.severity == 'MEDIUM' %}
+                        <span class="badge badge-blue">MEDIUM</span>
+                    {% else %}
+                        <span class="badge badge-gray">{{ alert.severity }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ (alert.confidence * 100)|round|int }}%</td>
+                <td>
+                    {% if alert.status == 'Open' %}
+                        <span class="badge badge-red">Open</span>
+                    {% else %}
+                        <span class="badge badge-green">Reviewed</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="display:flex; gap:8px;">
+                        {% if alert.status == 'Open' %}
+                            <form method="POST" action="{{ url_for('admin.soc_review', alert_id=alert.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-success">Mark Reviewed</button>
+                            </form>
+                        {% endif %}
+                        {% if alert.cert_in_draft %}
+                            <a href="{{ url_for('admin.soc_export_cert_in', alert_id=alert.id) }}" class="btn btn-sm btn-primary">Export Draft</a>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: var(--muted); padding: 40px;">
+                    No security incidents detected.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

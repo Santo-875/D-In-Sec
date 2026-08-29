@@ -11,7 +11,7 @@ from functools import wraps
 from flask import (Blueprint, render_template, redirect, url_for,
                    request, flash, abort)
 from flask_login import login_required, current_user
-from models import db, User, Document, FieldSchema, DsarRequest
+from models import db, User, Document, FieldSchema, DsarRequest, IncidentAlert
 from vault.service import vault_get_profile, vault_get_file
 from vault.token_manager import VaultAccessError
 import csv
@@ -603,3 +603,39 @@ def _build_regex_from_preset(preset_type: str) -> str:
         'custom':       r'.+',
     }
     return PRESETS.get(preset_type.lower(), r'.+')
+
+# ── Security Operations Center (SOC) ─────────────────────────────────────────
+
+@admin_bp.route('/soc')
+@admin_required
+def soc():
+    """Security Operations Center dashboard to view Module 2 LLM classifications."""
+    alerts = IncidentAlert.query.order_by(IncidentAlert.created_at.desc()).all()
+    logger.info(f"event=ADMIN_SOC_VIEW admin_id={current_user.id}")
+    return render_template('admin/soc.html', alerts=alerts)
+
+@admin_bp.route('/soc/<int:alert_id>/review', methods=['POST'])
+@admin_required
+def soc_review(alert_id):
+    alert = db.session.get(IncidentAlert, alert_id)
+    if not alert:
+        flash('Alert not found.', 'error')
+        return redirect(url_for('admin.soc'))
+    
+    alert.status = 'Reviewed'
+    db.session.commit()
+    logger.info(f"event=ADMIN_SOC_ALERT_REVIEWED admin_id={current_user.id} alert_id={alert_id}")
+    flash(f'Alert #{alert_id} marked as Reviewed.', 'success')
+    return redirect(url_for('admin.soc'))
+
+@admin_bp.route('/soc/<int:alert_id>/export_cert_in')
+@admin_required
+def soc_export_cert_in(alert_id):
+    alert = db.session.get(IncidentAlert, alert_id)
+    if not alert or not alert.cert_in_draft:
+        flash('Alert or CERT-In draft not found.', 'error')
+        return redirect(url_for('admin.soc'))
+    
+    response = Response(alert.cert_in_draft, mimetype='text/plain')
+    response.headers['Content-Disposition'] = f'attachment; filename=cert_in_report_{alert_id}_{datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}.txt'
+    return response
