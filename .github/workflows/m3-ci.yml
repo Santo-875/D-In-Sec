@@ -1,0 +1,28 @@
+name: M3 CI/CD Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Run M3 Tests & Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: pip install -r m3/requirements.txt
+
+      - name: Run M3 Test Suite
+        run: python -m pytest m3/tests/test_m3.py -v
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
