@@ -41,6 +41,23 @@ Recommended Action:
 """
     return draft
 
+def _fallback_classification(combined: str, masked_logs: list[str]) -> ClassificationResult | None:
+    """Deterministic rule-based fallback if LLM is unavailable."""
+    if combined.count("LOGIN_FAILED") >= 3 or combined.count("event=LOGIN_FAIL") >= 3:
+        res = ClassificationResult(incident_type=IncidentType.BRUTE_FORCE, severity=Severity.HIGH, confidence=0.92, source="fallback_rules")
+    elif "SELECT" in combined and "UNION" in combined:
+        res = ClassificationResult(incident_type=IncidentType.SQL_INJECTION, severity=Severity.CRITICAL, confidence=0.98, source="fallback_rules")
+    elif "UPLOAD_REJECTED" in combined:
+        res = ClassificationResult(incident_type=IncidentType.MALICIOUS_UPLOAD, severity=Severity.HIGH, confidence=0.95, source="fallback_rules")
+    elif "VERIFY_UNAUTHORIZED" in combined or "UNAUTHORIZED_ADMIN_ACCESS" in combined:
+        res = ClassificationResult(incident_type=IncidentType.UNAUTHORIZED_ACCESS, severity=Severity.MEDIUM, confidence=0.88, source="fallback_rules")
+    else:
+        return None
+        
+    if res.severity in (Severity.HIGH, Severity.CRITICAL):
+        res.cert_in_report_draft = generate_cert_in_draft(res.incident_type, masked_logs)
+    return res
+
 def analyze_log_batch(masked_logs: list[str]) -> ClassificationResult | None:
     """
     Hybrid pipeline: uses rule-based triggers as a fast pre-filter to avoid burning API calls,
@@ -68,47 +85,57 @@ def analyze_log_batch(masked_logs: list[str]) -> ClassificationResult | None:
     # 2. Real LLM Call
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key or not HAS_GENAI:
-        # Fallback for local testing without an API key
-        print("[WARNING] GEMINI_API_KEY not set or google-genai missing! Falling back to basic mock rule logic.")
-        if combined.count("LOGIN_FAIL") >= 3:
-            return ClassificationResult(
-                incident_type=IncidentType.BRUTE_FORCE,
-                severity=Severity.HIGH,
-                confidence=0.92,
-                cert_in_report_draft=generate_cert_in_draft(IncidentType.BRUTE_FORCE, masked_logs),
-                source="llm_mock"
-            )
-        return None
+        print("[WARNING] GEMINI_API_KEY not set or google-genai missing! Using deterministic fallback rules.")
+        return _fallback_classification(combined, masked_logs)
 
+    prompt = f"""
+    You are a Security Operations Center (SOC) expert. 
+    Analyze the following batch of masked application logs and determine if a security incident occurred.
+    
+    Masked Logs:
+    {chr(10).join(masked_logs)}
+    
+    Return a structured JSON object matching the requested schema. 
+    If you detect a brute force attack (e.g., multiple login failures), malicious upload, unauthorized access, or SQL injection, 
+    classify it appropriately. Ensure you classify Brute Force attacks as HIGH severity. Set a realistic confidence score between 0.0 and 1.0.
+    """
+    
+    # Suppress the noisy AFC warning from the SDK
+    import logging
+    logging.getLogger("google.genai").setLevel(logging.ERROR)
+    
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=ClassificationResult,
+        temperature=0.1
+    )
+    
     try:
-        client = genai.Client(api_key=api_key)
-        prompt = f"""
-        You are a Security Operations Center (SOC) expert. 
-        Analyze the following batch of masked application logs and determine if a security incident occurred.
-        
-        Masked Logs:
-        {chr(10).join(masked_logs)}
-        
-        Return a structured JSON object matching the requested schema. 
-        If you detect a brute force attack (e.g., multiple login failures), malicious upload, unauthorized access, or SQL injection, 
-        classify it appropriately. Ensure you classify Brute Force attacks as HIGH severity. Set a realistic confidence score between 0.0 and 1.0.
-        If severity is HIGH or CRITICAL, draft a CERT-In compliance report in the 'cert_in_report_draft' field.
-        """
-        
-        # Suppress the noisy AFC warning from the SDK
-        import logging
-        logging.getLogger("google.genai").setLevel(logging.ERROR)
-        
+        # Tier 1: Try flagship model
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ClassificationResult,
-                temperature=0.1
-            ),
+            config=config,
         )
-        return response.parsed
-    except Exception as e:
-        print(f"[ERROR] LLM Classification failed: {e}")
-        return None
+    except Exception as e1:
+        print(f"[WARNING] Primary model gemini-3.6-flash failed ({e1}). Attempting retry with gemini-2.5-flash...")
+        try:
+            # Tier 2: Try fallback model
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config=config,
+            )
+        except Exception as e2:
+            print(f"[ERROR] Both LLM models failed ({e2}). Falling back to deterministic rules.")
+            return _fallback_classification(combined, masked_logs)
+
+    try:
+        res = response.parsed
+        if res and res.severity in (Severity.HIGH, Severity.CRITICAL):
+            res.cert_in_report_draft = generate_cert_in_draft(res.incident_type, masked_logs)
+        return res
+    except Exception as e3:
+        print(f"[ERROR] LLM parsing failed ({e3}). Falling back to deterministic rules.")
+        return _fallback_classification(combined, masked_logs)
