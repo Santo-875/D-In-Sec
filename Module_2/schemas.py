@@ -14,6 +14,8 @@ class Logtemplate(str,Enum):
     UPLOAD_REJECTED = "UPLOAD_REJECTED"
     VERIFY_UNAUTHORIZED = "VERIFY_UNAUTHORIZED"
     VERIFY_RESULT = "VERIFY_RESULT"
+    VAULT_ACCESS = "VAULT_ACCESS"
+    VAULT_STORE = "VAULT_STORE"
     UNKNOWN = "UNKNOWN"
 class ParsedLogLine(BaseModel):
     timestamp:datetime
@@ -44,7 +46,7 @@ class Severity(str,Enum):
 class ClassificationResult(BaseModel):
     incident_type:IncidentType
     severity:Severity
-    confidence:float=Field(ge=0.0,le=0.0)
+    confidence:float=Field(ge=0.0,le=1.0)
     cert_in_report_draft:Optional[str]=None
     source:str="llm"
 class ProcessedLogEntry(BaseModel):

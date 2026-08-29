@@ -7,6 +7,7 @@ from parser import parse_log_line
 from template_detector import detect_template
 from masking.regex import mask_from_schema
 from masking.ner_masking import mask_named_entities
+from classifier import analyze_log_batch
 
 # Paths resolved relative to script location to avoid hardcoding machine-specific paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +33,26 @@ def get_schema_fields(db_path: Path) -> list:
     except Exception:
         return []
 
+def _insert_incident_alert(db_path: Path, classification, context_text: str):
+    """Save an alert directly to the Flask app database."""
+    try:
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO incident_alerts (incident_type, severity, confidence, masked_log_context, cert_in_draft, status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'Open', datetime('now'))
+        """, (
+            classification.incident_type.value,
+            classification.severity.value,
+            classification.confidence,
+            context_text,
+            classification.cert_in_report_draft
+        ))
+        conn.commit()
+        conn.close()
+        print(f"[*] Saved incident {classification.incident_type.value} to database.")
+    except Exception as e:
+        print(f"[ERROR] Failed to save IncidentAlert to DB: {e}")
 
 def tail_log_file(path: Path):
     f = open(path, "r", encoding="utf-8")
@@ -68,6 +89,8 @@ def main():
     # Cache schema fields to prevent high DB connection overhead on every log line
     schema_fields = get_schema_fields(DB_PATH)
     last_cache_time = time.time()
+    
+    log_buffer = []
 
     for raw_line in tail_log_file(LOG_FILE_PATH):
         parsed = parse_log_line(raw_line)
@@ -90,6 +113,18 @@ def main():
         print(f"  RAW:    {tagged.raw_message}")
         print(f"  MASKED: {masked_text}")
         print(f"  FOUND:  regex={regex_found} | ner={ner_found}")
+        
+        # Buffer logic for classification
+        log_buffer.append(masked_text)
+        if len(log_buffer) > 20:
+            log_buffer.pop(0)
+            
+        classification = analyze_log_batch(log_buffer)
+        if classification:
+            print(f"!!! [ALERT DETECTED] {classification.incident_type.value} (Severity: {classification.severity.value}) !!!")
+            _insert_incident_alert(DB_PATH, classification, "\n".join(log_buffer[-5:]))
+            log_buffer.clear() # Debounce until next event series
+            
         print()
 
 

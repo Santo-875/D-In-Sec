@@ -4,12 +4,27 @@ PII_ENTITY_LABELS = {"PERSON", "GPE", "LOC", "ORG"}
 
 def mask_named_entities(text: str) -> tuple[str, list[dict]]:
     doc = nlp(text)
-    entities_to_mask = [
-        ent for ent in doc.ents 
-        if ent.label_ in PII_ENTITY_LABELS 
-        and not ent.text.startswith("HASHED_IP")
-        and not ent.text.startswith("REDACTED")
-    ]
+    entities_to_mask = []
+    for ent in doc.ents:
+        if ent.label_ not in PII_ENTITY_LABELS:
+            continue
+            
+        # Ignore our own placeholders
+        if "REDACTED" in ent.text or "HASHED" in ent.text:
+            continue
+            
+        # Ignore structural logging keys/values (e.g., event=VAULT_ACCESS)
+        if "=" in ent.text:
+            continue
+        
+        # Check surrounding characters
+        prev_char = text[ent.start_char - 1] if ent.start_char > 0 else ""
+        next_char = text[ent.end_char] if ent.end_char < len(text) else ""
+        
+        if prev_char in ('=', '[', '_') or next_char in ('=', ']', '_'):
+            continue
+            
+        entities_to_mask.append(ent)
 
     entity_counts = {}
     for ent in entities_to_mask:

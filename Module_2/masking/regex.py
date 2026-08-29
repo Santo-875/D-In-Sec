@@ -2,15 +2,15 @@ import re
 import hashlib
 
 PII_PATTERNS = {
-    "AADHAAR": re.compile(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b"),
+    "AADHAAR": re.compile(r"(?:(?<=aadhaar=)[\w\s-]+|\b\d{4}[-\s]?\d{4}[-\s]?\d{4,6}\b)"),
     "PAN": re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.IGNORECASE),
     "EMAIL": re.compile(r"\b[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}\b"),
     "PHONE": re.compile(r"\b\d{10,12}\b"),
     "CREDIT_CARD": re.compile(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b"),
-    "DOB": re.compile(r"\bdob=\d{4}-\d{2}-\d{2}\b"),
+    "DOB": re.compile(r"(?<=dob=)\d{4}-\d{2}-\d{2}\b"),
     "IFSC": re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b"),
-    "FULL_NAME": re.compile(r"full_name=[^,]+"),
-    "ADDRESS": re.compile(r"address=[^,]+(?:,\s*[^,]+)*?(?=\s+from IP)"),
+    "FULL_NAME": re.compile(r"(?<=full_name=)[^,]+"),
+    "ADDRESS": re.compile(r"(?<=address=).*?(?=\s+from IP|$)"),
     "IP_ADDRESS": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
 }
 
