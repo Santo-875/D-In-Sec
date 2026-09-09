@@ -125,7 +125,8 @@ class IncidentAlert(db.Model):
     masked_log_context = db.Column(db.Text, nullable=False)
     cert_in_draft = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='Open') # Open, Reviewed
+    event_id = db.Column(db.String(64), nullable=True) # M3 Merkle Tree Audit Event ID
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self):
-        return f'<IncidentAlert {self.incident_type} {self.severity}>'
+        return f'<IncidentAlert {self.incident_type} {self.severity} event_id={self.event_id}>'

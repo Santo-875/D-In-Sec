@@ -5,6 +5,7 @@ Provides RSA-2048 digital signature generation, verification,
 key pair creation, and public key registry management.
 """
 
+import os
 import json
 import hashlib
 from typing import Dict, Any, Tuple, Optional
@@ -93,6 +94,52 @@ def sign_payload(private_key_pem: str, payload: Dict[str, Any]) -> str:
     )
 
     return signature.hex()
+
+
+def load_private_key_from_env(var_name: str = "M3_SIGNING_PRIVATE_KEY") -> Optional[str]:
+    """
+    Loads an RSA private key in PEM format strictly from an environment variable.
+    Kept in memory only — never read from or written to a file.
+    Supports both standard multiline PEM strings and single-line PEMs with literal \\n characters.
+
+    Args:
+        var_name (str): Environment variable name. Defaults to 'M3_SIGNING_PRIVATE_KEY'.
+
+    Returns:
+        Optional[str]: Cleaned PEM string if found, None otherwise.
+    """
+    raw_key = os.environ.get(var_name)
+    if not raw_key:
+        return None
+
+    cleaned_key = raw_key.strip()
+    if "\\n" in cleaned_key:
+        cleaned_key = cleaned_key.replace("\\n", "\n")
+
+    return cleaned_key.strip()
+
+
+def get_public_key_from_private_pem(private_key_pem: str) -> str:
+    """
+    Derives the corresponding RSA public key in PEM format directly from an
+    in-memory private key PEM string. Operates strictly in memory without disk I/O.
+
+    Args:
+        private_key_pem (str): RSA private key in PEM format.
+
+    Returns:
+        str: RSA public key in PEM format.
+    """
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode('utf-8'),
+        password=None,
+        backend=default_backend()
+    )
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode('utf-8')
+    return public_pem
 
 
 def verify_signature(public_key_pem: str, payload: Dict[str, Any], signature_hex: str) -> bool:
