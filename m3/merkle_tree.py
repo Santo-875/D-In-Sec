@@ -288,16 +288,27 @@ class HierarchicalMerkleTree:
             "subroot_proof": master_proof
         }
 
+    def check_leaf_integrity(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Deterministically checks leaf integrity against current tree state.
+
+        Returns:
+            Tuple[bool, Optional[str], Optional[str]]: (is_valid, expected_hash, actual_hash)
+        """
+        expected_combined = compute_combined_leaf_hash(masked_pii_hash, real_data_hash)
+        if user_id not in self.user_subroots:
+            return False, expected_combined, None
+        subroot = self.user_subroots[user_id]
+        if leaf_id not in subroot.leaves:
+            return False, expected_combined, None
+
+        leaf = subroot.leaves[leaf_id]
+        is_valid = (leaf.combined_hash == expected_combined)
+        return is_valid, expected_combined, leaf.combined_hash
+
     def verify_leaf_integrity(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str) -> bool:
         """
         Verifies that a leaf's masked PII and real data hashes match current state and have not been tampered with.
         """
-        if user_id not in self.user_subroots:
-            return False
-        subroot = self.user_subroots[user_id]
-        if leaf_id not in subroot.leaves:
-            return False
-
-        leaf = subroot.leaves[leaf_id]
-        expected_combined = compute_combined_leaf_hash(masked_pii_hash, real_data_hash)
-        return leaf.combined_hash == expected_combined
+        is_valid, _, _ = self.check_leaf_integrity(user_id, leaf_id, masked_pii_hash, real_data_hash)
+        return is_valid

@@ -20,6 +20,8 @@ from m3.merkle_tree import HierarchicalMerkleTree
 from m3.audit_log import AppendOnlyAuditLog
 from m3.freeze_manager import FreezeManager
 from m3.m4_interface import M4PayloadFormatter
+from m3.breach_alert import generate_breach_alert, record_breach_alert_to_db
+from datetime import datetime, timezone
 
 
 def create_m3_app():
@@ -189,7 +191,7 @@ def create_m3_app():
 
     @app.route('/api/v1/tree/verify-leaf', methods=['POST'])
     def verify_leaf():
-        """Verifies leaf integrity against current tree state."""
+        """Verifies leaf integrity against current tree state, triggering AI breach alert on tamper detection."""
         data = request.get_json() or {}
         user_id = data.get("user_id")
         leaf_id = data.get("leaf_id")
@@ -199,12 +201,32 @@ def create_m3_app():
         if not all([user_id, leaf_id, masked_pii_hash, real_data_hash]):
             return jsonify({"error": "Missing parameters"}), 400
 
-        is_valid = tree.verify_leaf_integrity(user_id, leaf_id, masked_pii_hash, real_data_hash)
-        return jsonify({
+        # Deterministic verification
+        is_valid, expected_hash, actual_hash = tree.check_leaf_integrity(user_id, leaf_id, masked_pii_hash, real_data_hash)
+        
+        response_body = {
             "user_id": user_id,
             "leaf_id": leaf_id,
             "integrity_verified": is_valid
-        }), 200
+        }
+
+        if not is_valid:
+            # Deterministic detection occurred -> Gather facts
+            facts = {
+                "affected_user": user_id,
+                "leaf_id": leaf_id,
+                "expected_hash": expected_hash or "NOT_FOUND",
+                "actual_hash": actual_hash or "NOT_FOUND",
+                "detected_at": datetime.now(timezone.utc).isoformat()
+            }
+            # AI breach alert generation with deterministic fallback
+            alert = generate_breach_alert(facts)
+            response_body["breach_alert"] = alert
+
+            # Route alert to SOC database
+            record_breach_alert_to_db(alert)
+
+        return jsonify(response_body), 200
 
     @app.route('/api/v1/audit/logs', methods=['GET'])
     def get_audit_logs():
