@@ -690,16 +690,39 @@ def soc_export_cert_in(alert_id):
             
         pdf.ln(8)
         
-        # 3. TECHNICAL DESCRIPTION & LOGS
+        # 3. ALERT SUMMARY / MASKED LOGS
+        is_tamper = (alert.incident_type == 'DATA_TAMPERING')
+        section_label = "3. Tamper Detection Summary" if is_tamper else "3. Technical Description (Masked Logs)"
         pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "3. Technical Description (Masked Logs)", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 10, section_label, new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Courier", "", 9)
         pdf.set_fill_color(245, 245, 245)
-        
-        # Encode logs safely
+
         safe_logs = alert.masked_log_context.encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 5, text=safe_logs, fill=True, border=1)
         pdf.ln(8)
+
+        # 3b. CRYPTOGRAPHIC TAMPER EVIDENCE (DATA_TAMPERING alerts only)
+        if is_tamper and alert.cert_in_draft:
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.cell(0, 8, "Cryptographic Tamper Evidence", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Courier", "", 8)
+            pdf.set_fill_color(250, 240, 240)
+            # Parse relevant lines from the CERT-In draft text
+            draft_lines = alert.cert_in_draft.splitlines()
+            evidence_started = False
+            evidence_text = ""
+            for line in draft_lines:
+                if "Cryptographic Evidence" in line or evidence_started:
+                    evidence_started = True
+                    if line.strip():
+                        evidence_text += line + "\n"
+                    if "Recommended Actions" in line:
+                        break
+            if evidence_text:
+                safe_ev = evidence_text.encode('latin-1', 'replace').decode('latin-1')
+                pdf.multi_cell(0, 5, text=safe_ev.strip(), fill=True, border=1)
+            pdf.ln(8)
         
         # 4. CRYPTOGRAPHIC AUDIT TRAIL
         pdf.set_font("Helvetica", "B", 14)
@@ -712,19 +735,24 @@ def soc_export_cert_in(alert_id):
         pdf.set_font("Courier", "", 9)
         pdf.set_fill_color(240, 245, 250)
         
-        # Generate some deterministic pseudo-hashes for the report aesthetic
-        import hashlib
-        doc_hash = hashlib.sha256(f"{alert.id}{alert.created_at}{alert.incident_type}".encode()).hexdigest()
-        prev_hash = hashlib.sha256(f"{alert.id - 1}".encode()).hexdigest() if alert.id > 1 else "0"*64
-        
-        pdf.cell(60, 6, "Cryptographic Hash (SHA-256)", border=1, fill=True)
+        doc_hash = hashlib.sha256(
+            f"{alert.id}{alert.created_at}{alert.incident_type}{alert.masked_log_context[:64]}".encode()
+        ).hexdigest()
+
+        m3_event_id = alert.event_id if alert.event_id else "Not linked (alert pre-dates M3 integration)"
+
+        pdf.cell(60, 6, "Report Hash (SHA-256)", border=1, fill=True)
         pdf.cell(130, 6, doc_hash, border=1, new_x="LMARGIN", new_y="NEXT")
-        
-        pdf.cell(60, 6, "Previous Block Hash", border=1, fill=True)
-        pdf.cell(130, 6, prev_hash, border=1, new_x="LMARGIN", new_y="NEXT")
-        
+
+        pdf.cell(60, 6, "M3 Ledger Event ID", border=1, fill=True)
+        pdf.cell(130, 6, str(m3_event_id), border=1, new_x="LMARGIN", new_y="NEXT")
+
         pdf.cell(60, 6, "Ledger Timestamp", border=1, fill=True)
         pdf.cell(130, 6, alert.created_at.isoformat(), border=1, new_x="LMARGIN", new_y="NEXT")
+
+        pdf.cell(60, 6, "Detection Source", border=1, fill=True)
+        detection_src = "M3 Merkle Engine (deterministic)" if alert.incident_type == 'DATA_TAMPERING' else "AI Classifier + Rules"
+        pdf.cell(130, 6, detection_src, border=1, new_x="LMARGIN", new_y="NEXT")
         
         pdf.ln(15)
         

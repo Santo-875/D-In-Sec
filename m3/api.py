@@ -191,7 +191,16 @@ def create_m3_app():
 
     @app.route('/api/v1/tree/verify-leaf', methods=['POST'])
     def verify_leaf():
-        """Verifies leaf integrity against current tree state, triggering AI breach alert on tamper detection."""
+        """
+        Verifies leaf integrity against current tree state.
+        On tamper detection (hash mismatch):
+          - Gathers deterministic facts immediately.
+          - Fires breach alert generation + DB persistence in a background thread
+            so the HTTP response is never delayed by Gemini latency.
+          - Returns the deterministic mismatch fact set synchronously.
+        """
+        import threading
+
         data = request.get_json() or {}
         user_id = data.get("user_id")
         leaf_id = data.get("leaf_id")
@@ -199,11 +208,13 @@ def create_m3_app():
         real_data_hash = data.get("real_data_hash")
 
         if not all([user_id, leaf_id, masked_pii_hash, real_data_hash]):
-            return jsonify({"error": "Missing parameters"}), 400
+            return jsonify({"error": "Missing required parameters: user_id, leaf_id, masked_pii_hash, real_data_hash"}), 400
 
-        # Deterministic verification
-        is_valid, expected_hash, actual_hash = tree.check_leaf_integrity(user_id, leaf_id, masked_pii_hash, real_data_hash)
-        
+        # 1. Deterministic SHA-256 check — no AI involved in this decision
+        is_valid, expected_hash, actual_hash = tree.check_leaf_integrity(
+            user_id, leaf_id, masked_pii_hash, real_data_hash
+        )
+
         response_body = {
             "user_id": user_id,
             "leaf_id": leaf_id,
@@ -211,20 +222,40 @@ def create_m3_app():
         }
 
         if not is_valid:
-            # Deterministic detection occurred -> Gather facts
+            detected_at = datetime.now(timezone.utc).isoformat()
             facts = {
                 "affected_user": user_id,
                 "leaf_id": leaf_id,
-                "expected_hash": expected_hash or "NOT_FOUND",
-                "actual_hash": actual_hash or "NOT_FOUND",
-                "detected_at": datetime.now(timezone.utc).isoformat()
+                "expected_hash": expected_hash or "LEAF_NOT_FOUND",
+                "actual_hash": actual_hash or "LEAF_NOT_FOUND",
+                "detected_at": detected_at
             }
-            # AI breach alert generation with deterministic fallback
-            alert = generate_breach_alert(facts)
-            response_body["breach_alert"] = alert
 
-            # Route alert to SOC database
-            record_breach_alert_to_db(alert)
+            # Expose the deterministic facts immediately in the response
+            response_body["tamper_detected"] = True
+            response_body["tamper_facts"] = {
+                "affected_user": user_id,
+                "leaf_id": leaf_id,
+                "detected_at": detected_at,
+                "expected_hash": (expected_hash or "")[:16] + "...",
+                "actual_hash": (actual_hash or "")[:16] + "...",
+            }
+            response_body["message"] = (
+                f"Tamper detected for user '{user_id}' record '{leaf_id}'. "
+                f"AI breach alert generation and SOC notification dispatched in background."
+            )
+
+            # 2. Fire AI alert generation + DB write in background — never blocks the response
+            def _background_alert(facts_copy: dict):
+                alert = generate_breach_alert(facts_copy)
+                record_breach_alert_to_db(alert)
+
+            thread = threading.Thread(
+                target=_background_alert,
+                args=(facts,),
+                daemon=True
+            )
+            thread.start()
 
         return jsonify(response_body), 200
 

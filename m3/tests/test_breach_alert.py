@@ -144,10 +144,16 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
     assert verify_resp_tampered.status_code == 200
     tampered_data = verify_resp_tampered.get_json()
     assert tampered_data["integrity_verified"] is False
-    assert "breach_alert" in tampered_data
 
-    alert = tampered_data["breach_alert"]
-    assert alert["affected_user"] == "carol"
-    assert alert["severity"] in ("CRITICAL", "HIGH")
-    assert "carol" in alert["summary"] or "leaf_001" in alert["summary"] or "verification" in alert["summary"]
-    assert "detected_at" in alert
+    # Verify new non-blocking response shape
+    assert tampered_data.get("tamper_detected") is True
+    assert "tamper_facts" in tampered_data
+    assert "message" in tampered_data
+
+    facts = tampered_data["tamper_facts"]
+    assert facts["affected_user"] == "carol"
+    assert facts["leaf_id"] == "leaf_001"
+    assert "detected_at" in facts
+    assert "expected_hash" in facts
+    assert "actual_hash" in facts
+    assert tampered_data["message"].startswith("Tamper detected")
