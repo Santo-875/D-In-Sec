@@ -50,7 +50,12 @@ def _load_api_keys() -> Dict[str, str]:
                 logger.info(f"Loaded {len(keys)} API key(s) from M3_API_KEYS.")
                 return keys
         except json.JSONDecodeError as e:
+            if os.environ.get("FLASK_ENV") == "production":
+                raise RuntimeError(f"FATAL: M3_API_KEYS is not valid JSON and FLASK_ENV=production. Error: {e}")
             logger.error(f"M3_API_KEYS is not valid JSON: {e}. Falling back to dev keys.")
+
+    if os.environ.get("FLASK_ENV") == "production":
+        raise RuntimeError("FATAL: M3_API_KEYS environment variable is required in production (FLASK_ENV=production).")
 
     logger.warning(
         "M3_API_KEYS not set or empty. Using DEVELOPMENT keys. "
@@ -71,7 +76,7 @@ def authenticate_request() -> tuple[Optional[str], Optional[str]]:
     Returns:
         (api_key, role) if valid, (None, None) if missing or invalid.
     """
-    api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
+    api_key = request.headers.get("X-API-Key")
     if not api_key:
         return None, None
 

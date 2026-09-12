@@ -195,7 +195,12 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
         else:
             print(f"[WARN] M3 update returned HTTP {response.status_code}: {response.text[:200]}")
             conn = sqlite3.connect(str(db_path))
-            conn.execute("UPDATE m2_outbox SET retry_count = retry_count + 1 WHERE id = ?", (outbox_id,))
+            conn.execute("""
+                UPDATE m2_outbox 
+                SET retry_count = retry_count + 1,
+                    status = CASE WHEN retry_count >= 9 THEN 'FAILED' ELSE status END
+                WHERE id = ?
+            """, (outbox_id,))
             conn.commit()
             conn.close()
             return False
@@ -203,7 +208,12 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
         print(f"[WARN] Failed to process outbox item {outbox_id}: {e}")
         try:
             conn = sqlite3.connect(str(db_path))
-            conn.execute("UPDATE m2_outbox SET retry_count = retry_count + 1 WHERE id = ?", (outbox_id,))
+            conn.execute("""
+                UPDATE m2_outbox 
+                SET retry_count = retry_count + 1,
+                    status = CASE WHEN retry_count >= 9 THEN 'FAILED' ELSE status END
+                WHERE id = ?
+            """, (outbox_id,))
             conn.commit()
             conn.close()
         except:

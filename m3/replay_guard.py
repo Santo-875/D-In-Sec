@@ -15,7 +15,7 @@ import time
 import threading
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, Any
 
 logger = logging.getLogger("m3.replay_guard")
 
@@ -34,9 +34,10 @@ class ReplayGuard:
     and enforces monotonic version progression per leaf.
     """
 
-    def __init__(self, max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS):
+    def __init__(self, max_age_seconds: int = DEFAULT_MAX_AGE_SECONDS, db=None):
         self._max_age = max_age_seconds
         self._lock = threading.Lock()
+        self.db = db
 
         # Seen event IDs with their insertion timestamp (for TTL cleanup)
         self._seen_event_ids: Dict[str, float] = {}
@@ -46,6 +47,32 @@ class ReplayGuard:
 
         # Current version per leaf: (user_id, leaf_id) -> version
         self._leaf_versions: Dict[Tuple[str, str], int] = {}
+        
+        if self.db:
+            self._load_from_db()
+
+    def _load_from_db(self):
+        with self.db.get_connection() as conn:
+            # Load events
+            cur = conn.execute("SELECT event_id, timestamp FROM replay_guard_events")
+            for row in cur.fetchall():
+                try:
+                    ts = datetime.fromisoformat(row[1].replace("Z", "+00:00")).timestamp()
+                    self._seen_event_ids[row[0]] = ts
+                except ValueError:
+                    pass
+            # Load nonces
+            cur = conn.execute("SELECT nonce, timestamp FROM replay_guard_nonces")
+            for row in cur.fetchall():
+                try:
+                    ts = datetime.fromisoformat(row[1].replace("Z", "+00:00")).timestamp()
+                    self._seen_nonces[row[0]] = ts
+                except ValueError:
+                    pass
+            # Load versions
+            cur = conn.execute("SELECT user_id, leaf_id, version FROM replay_guard_versions")
+            for row in cur.fetchall():
+                self._leaf_versions[(row[0], row[1])] = row[2]
 
     def validate_request(
         self,
@@ -106,6 +133,14 @@ class ReplayGuard:
 
             if version is not None:
                 self._leaf_versions[(user_id, leaf_id)] = version
+                
+            if self.db:
+                with self.db.get_connection() as conn:
+                    with conn:
+                        conn.execute("INSERT OR REPLACE INTO replay_guard_events (event_id, timestamp) VALUES (?, ?)", (event_id, timestamp))
+                        conn.execute("INSERT OR REPLACE INTO replay_guard_nonces (nonce, timestamp) VALUES (?, ?)", (nonce, timestamp))
+                        if version is not None:
+                            conn.execute("INSERT OR REPLACE INTO replay_guard_versions (user_id, leaf_id, version) VALUES (?, ?, ?)", (user_id, leaf_id, version))
 
         return True, None
 
@@ -146,6 +181,14 @@ class ReplayGuard:
             expired_nonces = [n for n, ts in self._seen_nonces.items() if ts < cutoff]
             for n in expired_nonces:
                 del self._seen_nonces[n]
+                
+            if self.db and (expired_events or expired_nonces):
+                with self.db.get_connection() as conn:
+                    with conn:
+                        for eid in expired_events:
+                            conn.execute("DELETE FROM replay_guard_events WHERE event_id = ?", (eid,))
+                        for n in expired_nonces:
+                            conn.execute("DELETE FROM replay_guard_nonces WHERE nonce = ?", (n,))
 
         if expired_events or expired_nonces:
             logger.debug(

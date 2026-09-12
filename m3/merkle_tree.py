@@ -8,7 +8,7 @@ User Subroot  User Subroot  User Subroot ... (1 per user)
    /   |   \\
  Leaf Leaf Leaf  Hash(user_id:leaf_id:version:timestamp:masked_pii_hash:real_data_hash)
 
-Provides fast, provable state updates, O(log n) path recomputations,
+Provides fast, provable state updates, hierarchical path recomputations,
 cryptographic path inclusion/transition proofs, and independent proof verification.
 """
 
@@ -229,9 +229,9 @@ class HierarchicalMerkleTree:
         return self.user_subroots[user_id]
 
     def update_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str,
-                    real_data_hash: str, timestamp: str) -> Dict[str, Any]:
+                    real_data_hash: str, timestamp: str, conn = None) -> Dict[str, Any]:
         """
-        Executes O(log n) path update: leaf -> user subroot -> master root.
+        Executes hierarchical path update: leaf -> user subroot -> master root.
 
         Returns:
             Dict[str, Any]: Proof details including old and new subroot and master roots.
@@ -260,7 +260,8 @@ class HierarchicalMerkleTree:
                 real_data_hash=real_data_hash,
                 combined_hash=leaf.combined_hash,
                 timestamp=timestamp,
-                version=leaf.version
+                version=leaf.version,
+                conn=conn
             )
 
         return {

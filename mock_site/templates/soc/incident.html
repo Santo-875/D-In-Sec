@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+
+{% block title %}Investigate Incident #{{ incident.id }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="border-bottom pb-2">Incident #{{ incident.id }}: {{ incident.incident_type }}</h2>
+        <a href="{{ url_for('soc.index') }}" class="btn btn-outline-secondary mt-2">&larr; Back to Dashboard</a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left Column: Context -->
+    <div class="col-md-7">
+        <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+                <h5 class="card-title mb-0">Incident Details</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Severity:</strong> 
+                    {% if incident.severity == 'CRITICAL' %}
+                        <span class="badge bg-danger">{{ incident.severity }}</span>
+                    {% elif incident.severity == 'HIGH' %}
+                        <span class="badge bg-warning text-dark">{{ incident.severity }}</span>
+                    {% else %}
+                        <span class="badge bg-info text-dark">{{ incident.severity }}</span>
+                    {% endif %}
+                </p>
+                <p><strong>Status:</strong> <span class="badge bg-warning text-dark">{{ incident.status }}</span></p>
+                <p><strong>Detected At:</strong> {{ incident.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                
+                <h6 class="mt-4">Masked Log Context:</h6>
+                <pre class="bg-light p-3 border rounded"><code>{{ incident.masked_log_context }}</code></pre>
+            </div>
+        </div>
+
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h5 class="card-title mb-0">CERT-In Draft / AI Explanation</h5>
+            </div>
+            <div class="card-body">
+                <pre class="mb-0" style="white-space: pre-wrap;">{{ incident.cert_in_draft if incident.cert_in_draft else "No draft available." }}</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Merkle Proof & Cryptography -->
+    <div class="col-md-5">
+        <div class="card border-success mb-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">End-to-End Integrity Verification (M3)</h5>
+            </div>
+            <div class="card-body">
+                {% if verification %}
+                    {% if verification.status == 'VERIFIED' %}
+                        <div class="alert alert-success">
+                            <h4 class="alert-heading"><i class="bi bi-shield-check"></i> VERIFIED</h4>
+                            <p class="mb-0">{{ verification.message }}</p>
+                        </div>
+                        <p><strong>Expected Leaf Hash:</strong> <br><small class="text-muted">{{ verification.leaf_hash }}</small></p>
+                        <p><strong>Computed Master Root:</strong> <br><small class="text-muted">{{ verification.master_root }}</small></p>
+                    {% elif verification.status == 'FAILED' %}
+                        <div class="alert alert-danger">
+                            <h4 class="alert-heading"><i class="bi bi-shield-x"></i> TAMPERING DETECTED</h4>
+                            <p class="mb-0">{{ verification.reason }}</p>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning">
+                            <h4 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> ERROR</h4>
+                            <p class="mb-0">{{ verification.reason }}</p>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted">No verification data available (perhaps no M3 event_id linked).</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-light">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Cryptographic Proof (M4 Payload)</h5>
+            </div>
+            <div class="card-body">
+                {% if m4_data %}
+                    <pre class="mb-0" style="font-size: 0.85em; max-height: 400px; overflow-y: auto;"><code>{{ m4_data | tojson(indent=2) }}</code></pre>
+                {% else %}
+                    <p class="text-muted mb-0">No M4 Payload found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -2,6 +2,7 @@ import re
 import hashlib
 import hmac
 import os
+import ipaddress
 
 PII_PATTERNS = {
     "AADHAAR": re.compile(r"(?:(?<=aadhaar=)[\w\s-]+|\b\d{4}[-\s]?\d{4}[-\s]?\d{4,6}\b)"),
@@ -21,6 +22,28 @@ SECRET_KEY = os.environ.get("PII_HASH_KEY", "DInSec_Secret_Salt_8Xq2zL9mP!").enc
 def _hash_ip(ip: str) -> str:
     return hmac.new(SECRET_KEY, ip.encode(), hashlib.sha256).hexdigest()[:16]
 
+def is_valid_ip(ip: str) -> bool:
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+def is_valid_credit_card(cc: str) -> bool:
+    # Remove all non-digit characters
+    digits = [int(c) for c in cc if c.isdigit()]
+    if not digits:
+        return False
+    # Luhn algorithm
+    checksum = 0
+    for i, digit in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        checksum += digit
+    return checksum % 10 == 0
+
 def mask_structured_pii(text: str) -> tuple[str, list[dict], bool]:
     entities_found = []
     has_leak = False
@@ -28,12 +51,20 @@ def mask_structured_pii(text: str) -> tuple[str, list[dict], bool]:
     for pii_type, pattern in PII_PATTERNS.items():
         matches = pattern.findall(text)
         if matches:
-            entities_found.append({"pii_type": pii_type, "count": len(matches)})
-            if pii_type == "IP_ADDRESS":
-                text = pattern.sub(lambda m: f"[HASHED_IP_{_hash_ip(m.group(0))}]", text)
-            else:
-                has_leak = True
-                text = pattern.sub(f"[REDACTED_{pii_type}]", text)
+            for m in matches:
+                if pii_type == "IP_ADDRESS":
+                    if is_valid_ip(m):
+                        entities_found.append({"pii_type": pii_type, "count": 1})
+                        text = text.replace(m, f"[HASHED_IP_{_hash_ip(m)}]")
+                elif pii_type == "CREDIT_CARD":
+                    if is_valid_credit_card(m):
+                        entities_found.append({"pii_type": pii_type, "count": 1})
+                        has_leak = True
+                        text = text.replace(m, f"[REDACTED_{pii_type}]")
+                else:
+                    entities_found.append({"pii_type": pii_type, "count": 1})
+                    has_leak = True
+                    text = text.replace(m, f"[REDACTED_{pii_type}]")
 
     return text, entities_found, has_leak
 
@@ -72,18 +103,24 @@ def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list, bool]:
             # Skip invalid regex patterns
             continue
 
-    # Always run IP hashing regardless of schema
+    # Always run IP hashing regardless of schema with strict validation
     ip_pattern = PII_PATTERNS['IP_ADDRESS']
     ip_matches = ip_pattern.findall(text)
     if ip_matches:
-        entities_found.append({'pii_type': 'IP_ADDRESS', 'count': len(ip_matches)})
-        text = ip_pattern.sub(lambda m: f"[HASHED_IP_{_hash_ip(m.group(0))}]", text)
+        for m in ip_matches:
+            if is_valid_ip(m):
+                entities_found.append({'pii_type': 'IP_ADDRESS', 'count': 1})
+                text = text.replace(m, f"[HASHED_IP_{_hash_ip(m)}]")
 
     # Check for structured defaults in case schema missed them
     if not has_leak:
         for pii_type in ["AADHAAR", "PAN", "CREDIT_CARD", "PHONE"]:
-            if PII_PATTERNS[pii_type].search(text):
-                has_leak = True
-                text = PII_PATTERNS[pii_type].sub(f"[REDACTED_{pii_type}]", text)
+            matches = PII_PATTERNS[pii_type].findall(text)
+            if matches:
+                for m in matches:
+                    if pii_type == "CREDIT_CARD" and not is_valid_credit_card(m):
+                        continue
+                    has_leak = True
+                    text = text.replace(m, f"[REDACTED_{pii_type}]")
 
     return text, entities_found, has_leak

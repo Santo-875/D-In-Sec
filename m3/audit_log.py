@@ -142,7 +142,8 @@ class AppendOnlyAuditLog:
         signature_hex: str,
         signer_fingerprint: str,
         timestamp: Optional[str] = None,
-        event_id: Optional[str] = None
+        event_id: Optional[str] = None,
+        conn = None
     ) -> AuditLogEntry:
         """
         Records a new verified tree update.
@@ -187,8 +188,8 @@ class AppendOnlyAuditLog:
         
         # Save to DB and external anchor if configured
         if self.db:
-            self.db.save_audit_event(entry.to_dict())
-            self.db.save_checkpoint(checkpoint.to_dict())
+            self.db.save_audit_event(entry.to_dict(), conn=conn)
+            self.db.save_checkpoint(checkpoint.to_dict(), conn=conn)
         
         if self.external_anchor:
             self.external_anchor.anchor_checkpoint(checkpoint.to_dict())
@@ -237,6 +238,9 @@ class AppendOnlyAuditLog:
                     del self._event_index[entry.event_id]
 
         self._detailed_logs = retained_logs
+
+        if self.db:
+            self.db.prune_audit_events(cutoff_date.isoformat())
 
         return {
             "retention_policy_days": days,

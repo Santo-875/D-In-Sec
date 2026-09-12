@@ -127,15 +127,37 @@ class FreezeManager:
     def is_frozen(self, user_id: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """
         Checks if write operations are currently frozen for master or a user subtree.
+        Enforces expiry logic dynamically.
 
         Returns:
             Tuple[bool, Optional[str]]: (is_frozen, reason)
         """
+        now = datetime.now(timezone.utc)
+        
+        # Check master freeze
         if self._master_frozen:
+            if self._master_expires_at:
+                try:
+                    expires_dt = datetime.fromisoformat(self._master_expires_at.replace("Z", "+00:00"))
+                    if now >= expires_dt:
+                        self.unfreeze_master()
+                        return False, None
+                except ValueError:
+                    pass
             return True, f"Master Tree Frozen: {self._master_freeze_reason}"
 
+        # Check subtree freeze
         if user_id and user_id in self._subtree_freezes:
             info = self._subtree_freezes[user_id]
+            expires_at_str = info.get("expires_at")
+            if expires_at_str:
+                try:
+                    expires_dt = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                    if now >= expires_dt:
+                        self.unfreeze_subtree(user_id)
+                        return False, None
+                except ValueError:
+                    pass
             return True, f"Subtree Frozen: {info['reason']}"
 
         return False, None

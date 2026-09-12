@@ -29,9 +29,14 @@ class M3Database:
                         identity_id TEXT PRIMARY KEY,
                         public_key_pem TEXT NOT NULL,
                         fingerprint TEXT NOT NULL,
-                        registered_at TEXT NOT NULL
+                        registered_at TEXT NOT NULL,
+                        is_revoked INTEGER DEFAULT 0
                     )
                 ''')
+                try:
+                    cursor.execute("ALTER TABLE identity_keys ADD COLUMN is_revoked INTEGER DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass
                 # 2. Merkle Leaves (for rebuilding tree)
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS merkle_leaves (
@@ -97,6 +102,26 @@ class M3Database:
                         payload_json TEXT NOT NULL
                     )
                 ''')
+                # 8. AI Background Jobs
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS ai_jobs (
+                        job_id TEXT PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        facts_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        completed_at TEXT
+                    )
+                ''')
+                # 9. Admin Audit Logs
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        action TEXT NOT NULL,
+                        target TEXT,
+                        reason TEXT,
+                        timestamp TEXT NOT NULL
+                    )
+                ''')
             conn.commit()
 
     # --- Identity Keys ---
@@ -104,17 +129,28 @@ class M3Database:
         with closing(self.get_connection()) as conn:
             with conn:
                 conn.execute(
-                    "INSERT OR REPLACE INTO identity_keys (identity_id, public_key_pem, fingerprint, registered_at) VALUES (?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO identity_keys (identity_id, public_key_pem, fingerprint, registered_at, is_revoked) VALUES (?, ?, ?, ?, 0)",
                     (identity_id, public_key_pem, fingerprint, registered_at)
                 )
 
     def load_identity_keys(self) -> Dict[str, Dict[str, str]]:
+        keys = {}
         with closing(self.get_connection()) as conn:
-            cursor = conn.execute("SELECT identity_id, public_key_pem, fingerprint, registered_at FROM identity_keys")
-            return {
-                row[0]: {"public_key_pem": row[1], "fingerprint": row[2], "registered_at": row[3]}
-                for row in cursor.fetchall()
-            }
+            cursor = conn.execute("SELECT identity_id, public_key_pem, fingerprint, registered_at, is_revoked FROM identity_keys")
+            for row in cursor:
+                keys[row[0]] = {
+                    "public_key_pem": row[1],
+                    "fingerprint": row[2],
+                    "registered_at": row[3],
+                    "is_revoked": bool(row[4])
+                }
+        return keys
+
+    def revoke_identity(self, identity_id: str) -> bool:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                cursor = conn.execute("UPDATE identity_keys SET is_revoked = 1 WHERE identity_id = ?", (identity_id,))
+                return cursor.rowcount > 0
 
     # --- Merkle Leaves ---
     def save_merkle_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, combined_hash: str, timestamp: str, version: int):
@@ -213,3 +249,52 @@ class M3Database:
             if row:
                 return json.loads(row[0])
             return None
+
+    def register_identity(self, identity_id: str, public_key_pem: str):
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("INSERT OR REPLACE INTO identity_keys (identity_id, public_key_pem, is_revoked) VALUES (?, ?, 0)", 
+                             (identity_id, public_key_pem))
+
+    def get_public_key(self, identity_id: str) -> Optional[str]:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute("SELECT public_key_pem, is_revoked FROM identity_keys WHERE identity_id = ?", (identity_id,))
+            row = cursor.fetchone()
+            if row:
+                if row[1] == 1:
+                    return "REVOKED"
+                return row[0]
+            return None
+
+    def revoke_identity(self, identity_id: str) -> bool:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                cursor = conn.execute("UPDATE identity_keys SET is_revoked = 1 WHERE identity_id = ?", (identity_id,))
+                return cursor.rowcount > 0
+
+    # --- AI Jobs ---
+    def save_ai_job(self, job_id: str, status: str, facts: Dict[str, Any], created_at: str, conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute("INSERT OR REPLACE INTO ai_jobs (job_id, status, facts_json, created_at) VALUES (?, ?, ?, ?)",
+                      (job_id, status, json.dumps(facts), created_at))
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
+
+    def update_ai_job_status(self, job_id: str, status: str, completed_at: Optional[str] = None):
+        with closing(self.get_connection()) as conn:
+            with conn:
+                if completed_at:
+                    conn.execute("UPDATE ai_jobs SET status = ?, completed_at = ? WHERE job_id = ?", (status, completed_at, job_id))
+                else:
+                    conn.execute("UPDATE ai_jobs SET status = ? WHERE job_id = ?", (status, job_id))
+
+    # --- Admin Audit Logs ---
+    def save_admin_audit_log(self, action: str, target: str, reason: str, timestamp: str):
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("INSERT INTO admin_audit_logs (action, target, reason, timestamp) VALUES (?, ?, ?, ?)",
+                             (action, target, reason, timestamp))
