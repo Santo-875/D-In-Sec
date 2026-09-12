@@ -8,8 +8,13 @@ Maintains a permanent, tamper-evident record of all system events:
 """
 
 import uuid
+import hashlib
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
+
+def _compute_hash(data: str) -> str:
+    return hashlib.sha256(data.encode('utf-8')).hexdigest()
 
 
 class AuditLogEntry:
@@ -27,7 +32,9 @@ class AuditLogEntry:
         old_master_root: str,
         new_master_root: str,
         signature_hex: str,
-        signer_fingerprint: str
+        signer_fingerprint: str,
+        previous_hash: Optional[str] = None,
+        event_hash: Optional[str] = None
     ):
         self.event_id = event_id
         self.timestamp = timestamp
@@ -39,6 +46,14 @@ class AuditLogEntry:
         self.new_master_root = new_master_root
         self.signature_hex = signature_hex
         self.signer_fingerprint = signer_fingerprint
+        self.previous_hash = previous_hash
+        
+        if event_hash:
+            self.event_hash = event_hash
+        else:
+            # Compute event_hash cryptographically linking to previous_hash
+            payload_to_hash = f"{self.previous_hash or 'GENESIS'}:{self.event_id}:{self.timestamp}:{self.new_leaf_hash}:{self.new_master_root}:{self.signature_hex}"
+            self.event_hash = _compute_hash(payload_to_hash)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,39 +66,70 @@ class AuditLogEntry:
             "old_master_root": self.old_master_root,
             "new_master_root": self.new_master_root,
             "signature_hex": self.signature_hex,
-            "signer_fingerprint": self.signer_fingerprint
+            "signer_fingerprint": self.signer_fingerprint,
+            "previous_hash": self.previous_hash,
+            "event_hash": self.event_hash
         }
 
 
 class PermanentRootCheckpoint:
     """
     32-byte Master Root Checkpoint retained permanently even after detailed log pruning.
+    Forms a cryptographic hash chain.
     """
-    def __init__(self, event_id: str, timestamp: str, master_root: str, user_id: str):
+    def __init__(self, event_id: str, timestamp: str, master_root: str, user_id: str, previous_hash: Optional[str] = None, checkpoint_hash: Optional[str] = None):
         self.event_id = event_id
         self.timestamp = timestamp
         self.master_root = master_root
         self.user_id = user_id
+        self.previous_hash = previous_hash
+        
+        if checkpoint_hash:
+            self.checkpoint_hash = checkpoint_hash
+        else:
+            payload_to_hash = f"{self.previous_hash or 'GENESIS'}:{self.event_id}:{self.timestamp}:{self.master_root}"
+            self.checkpoint_hash = _compute_hash(payload_to_hash)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "event_id": self.event_id,
             "timestamp": self.timestamp,
             "master_root": self.master_root,
-            "user_id": self.user_id
+            "user_id": self.user_id,
+            "previous_hash": self.previous_hash,
+            "checkpoint_hash": self.checkpoint_hash
         }
 
 
 class AppendOnlyAuditLog:
     """
     Append-only log store managing detailed event logs and permanent root hash checkpoints.
+    Synchronizes state to an M3Database instance if provided.
     """
     RETENTION_DAYS = 180
 
-    def __init__(self):
+    def __init__(self, db=None, external_anchor=None):
         self._detailed_logs: List[AuditLogEntry] = []
         self._permanent_root_chain: List[PermanentRootCheckpoint] = []
         self._event_index: Dict[str, AuditLogEntry] = {}
+        self.db = db
+        self.external_anchor = external_anchor
+        
+        if self.db:
+            self._load_from_db()
+
+    def _load_from_db(self):
+        """Loads existing audit events and checkpoints from the database."""
+        events = self.db.load_audit_events()
+        for e in events:
+            entry = AuditLogEntry(**e)
+            self._detailed_logs.append(entry)
+            self._event_index[entry.event_id] = entry
+            
+        checkpoints = self.db.load_checkpoints()
+        for c in checkpoints:
+            chk = PermanentRootCheckpoint(**c)
+            self._permanent_root_chain.append(chk)
 
     def log_event(
         self,
@@ -95,15 +141,20 @@ class AppendOnlyAuditLog:
         new_master_root: str,
         signature_hex: str,
         signer_fingerprint: str,
-        timestamp: Optional[str] = None
+        timestamp: Optional[str] = None,
+        event_id: Optional[str] = None
     ) -> AuditLogEntry:
         """
-        Appends a signed event to the detailed log and records a permanent root checkpoint.
+        Records a new verified tree update.
+        Maintains cryptographic chain via previous_hash.
         """
-        if timestamp is None:
+        if not timestamp:
             timestamp = datetime.now(timezone.utc).isoformat()
+        if not event_id:
+            event_id = f"evt_{uuid.uuid4().hex[:12]}"
 
-        event_id = f"evt_{uuid.uuid4().hex[:12]}"
+        # Calculate previous event hash
+        prev_event_hash = self._detailed_logs[-1].event_hash if self._detailed_logs else None
 
         entry = AuditLogEntry(
             event_id=event_id,
@@ -115,19 +166,32 @@ class AppendOnlyAuditLog:
             old_master_root=old_master_root,
             new_master_root=new_master_root,
             signature_hex=signature_hex,
-            signer_fingerprint=signer_fingerprint
+            signer_fingerprint=signer_fingerprint,
+            previous_hash=prev_event_hash
         )
+
+        self._detailed_logs.append(entry)
+        self._event_index[event_id] = entry
+
+        # Calculate previous checkpoint hash
+        prev_chk_hash = self._permanent_root_chain[-1].checkpoint_hash if self._permanent_root_chain else None
 
         checkpoint = PermanentRootCheckpoint(
             event_id=event_id,
             timestamp=timestamp,
             master_root=new_master_root,
-            user_id=user_id
+            user_id=user_id,
+            previous_hash=prev_chk_hash
         )
-
-        self._detailed_logs.append(entry)
         self._permanent_root_chain.append(checkpoint)
-        self._event_index[event_id] = entry
+        
+        # Save to DB and external anchor if configured
+        if self.db:
+            self.db.save_audit_event(entry.to_dict())
+            self.db.save_checkpoint(checkpoint.to_dict())
+        
+        if self.external_anchor:
+            self.external_anchor.anchor_checkpoint(checkpoint.to_dict())
 
         return entry
 

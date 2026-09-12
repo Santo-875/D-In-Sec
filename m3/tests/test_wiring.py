@@ -23,7 +23,8 @@ from Module_2.tailer import (
     _ensure_event_id_column,
     _insert_incident_alert,
     _update_incident_event_id,
-    _send_update_to_m3
+    _send_update_to_m3,
+    _register_key_with_m3
 )
 from mock_site.vault.crypto import _load_or_create_key, encrypt, decrypt
 
@@ -97,6 +98,8 @@ def test_module2_to_module3_wiring_end_to_end(rsa_keys, m3_server, monkeypatch, 
     priv_pem, _ = rsa_keys
     monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_pem)
     monkeypatch.setenv("M3_API_URL", "http://127.0.0.1:5001/api/v1/tree/update")
+    monkeypatch.setenv("M3_SERVICE_API_KEY", "dev-service-key")
+    monkeypatch.setenv("M3_ADMIN_API_KEY", "dev-admin-key")
 
     # Set up temporary SQLite database
     db_path = tmp_path / "test_mock_site.db"
@@ -128,7 +131,12 @@ def test_module2_to_module3_wiring_end_to_end(rsa_keys, m3_server, monkeypatch, 
     alert_id = _insert_incident_alert(db_path, classification, context_text)
     assert alert_id is not None
 
-    # Step 2: Send update to M3
+    # Step 2: Pre-register public key with M3 (required by Phase 1 decoupled registration)
+    _, pub_pem = rsa_keys
+    _register_key_with_m3(pub_pem, user_id="admin")
+    time.sleep(0.2)  # Allow registration to complete
+
+    # Step 3: Send update to M3
     _send_update_to_m3(db_path, alert_id, classification, context_text)
 
     # Step 3: Verify event_id is saved to database
@@ -152,6 +160,7 @@ def test_m3_down_resilience_best_effort(rsa_keys, monkeypatch, tmp_path):
     monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_pem)
     # Point to nonexistent port to trigger connection error
     monkeypatch.setenv("M3_API_URL", "http://127.0.0.1:59999/api/v1/tree/update")
+    monkeypatch.setenv("M3_SERVICE_API_KEY", "dev-service-key")
 
     db_path = tmp_path / "test_down.db"
     conn = sqlite3.connect(str(db_path))

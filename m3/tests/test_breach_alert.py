@@ -94,12 +94,24 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
     3. Verification with altered/tampered hash fails deterministically.
     4. Mismatch triggers breach alert with summary, severity, and facts.
     """
+    import uuid
+
+    ADMIN_HEADERS = {"X-API-Key": "dev-admin-key"}
+    SERVICE_HEADERS = {"X-API-Key": "dev-service-key"}
+    VIEWER_HEADERS = {"X-API-Key": "dev-viewer-key"}
+
     app = create_m3_app()
     client = app.test_client()
 
     # Step 1: Register identity and update leaf
     from m3.crypto_signer import generate_rsa_key_pair, sign_payload
     priv_pem, pub_pem = generate_rsa_key_pair()
+
+    # Pre-register key (ADMIN required by Phase 1)
+    client.post("/api/v1/identity/register", json={
+        "identity_id": "carol",
+        "public_key_pem": pub_pem
+    }, headers=ADMIN_HEADERS)
 
     real_data_hash = compute_hash("valid_real_data")
     masked_pii_hash = compute_hash("valid_masked_pii")
@@ -117,8 +129,9 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
     update_resp = client.post("/api/v1/tree/update", json={
         **payload,
         "signature_hex": sig,
-        "public_key_pem": pub_pem
-    })
+        "event_id": f"evt_{uuid.uuid4().hex[:12]}",
+        "nonce": uuid.uuid4().hex
+    }, headers=SERVICE_HEADERS)
     assert update_resp.status_code == 200
 
     # Step 2: Verify with correct data -> Should pass with NO breach alert
@@ -127,7 +140,7 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
         "leaf_id": "leaf_001",
         "masked_pii_hash": masked_pii_hash,
         "real_data_hash": real_data_hash
-    })
+    }, headers=VIEWER_HEADERS)
     assert verify_resp_valid.status_code == 200
     valid_data = verify_resp_valid.get_json()
     assert valid_data["integrity_verified"] is True
@@ -140,7 +153,7 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
         "leaf_id": "leaf_001",
         "masked_pii_hash": masked_pii_hash,
         "real_data_hash": tampered_real_data_hash
-    })
+    }, headers=VIEWER_HEADERS)
     assert verify_resp_tampered.status_code == 200
     tampered_data = verify_resp_tampered.get_json()
     assert tampered_data["integrity_verified"] is False
@@ -157,3 +170,4 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
     assert "expected_hash" in facts
     assert "actual_hash" in facts
     assert tampered_data["message"].startswith("Tamper detected")
+

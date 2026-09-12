@@ -1,9 +1,15 @@
 """
 Comprehensive Test Suite for Module 3 (M3):
 Identity, Hierarchical Merkle Tree & Root Verification Engine.
+
+Updated for Phase 1 security hardening:
+  - All API requests include X-API-Key auth headers
+  - Enhanced 6-field leaf hash binding
+  - Anti-replay fields (event_id, nonce) on /tree/update
 """
 
 import pytest
+import uuid
 import hashlib
 from datetime import datetime, timezone, timedelta
 from m3.crypto_signer import (
@@ -18,6 +24,10 @@ from m3.audit_log import AppendOnlyAuditLog
 from m3.freeze_manager import FreezeManager
 from m3.m4_interface import M4PayloadFormatter
 from m3.api import create_m3_app
+
+ADMIN_HEADERS = {"X-API-Key": "dev-admin-key"}
+SERVICE_HEADERS = {"X-API-Key": "dev-service-key"}
+VIEWER_HEADERS = {"X-API-Key": "dev-viewer-key"}
 
 
 @pytest.fixture
@@ -112,6 +122,17 @@ def test_leaf_integrity_and_tamper_detection():
     assert tree.verify_leaf_integrity(user_id, leaf_id, masked_hash, tampered_real_hash) is False
 
 
+def test_enhanced_leaf_hash_binds_user_id():
+    """Verifies that the same masked/real hashes produce DIFFERENT leaf hashes for different users."""
+    masked = hashlib.sha256(b"same_masked").hexdigest()
+    real = hashlib.sha256(b"same_real").hexdigest()
+
+    hash_user_a = compute_combined_leaf_hash("user_a", "leaf_1", 1, "2026-01-01T00:00:00Z", masked, real)
+    hash_user_b = compute_combined_leaf_hash("user_b", "leaf_1", 1, "2026-01-01T00:00:00Z", masked, real)
+
+    assert hash_user_a != hash_user_b, "Leaf hash must be different for different users (prevents transplant attack)"
+
+
 def test_certin_180_day_retention_pruning():
     audit_log = AppendOnlyAuditLog()
 
@@ -185,52 +206,56 @@ def test_write_freeze_manager():
 
 
 def test_api_workflow(app_client):
-    # 1. Health check
+    # 1. Health check (public — no auth)
     res = app_client.get('/api/v1/health')
     assert res.status_code == 200
 
-    # 2. Generate RSA Key Pair
-    res = app_client.post('/api/v1/identity/generate-keys')
+    # 2. Generate RSA Key Pair (ADMIN)
+    res = app_client.post('/api/v1/identity/generate-keys', headers=ADMIN_HEADERS)
     assert res.status_code == 201
     keys_data = res.get_json()
     private_pem = keys_data["private_key_pem"]
     public_pem = keys_data["public_key_pem"]
 
-    # 3. Register Key
+    # 3. Register Key (ADMIN)
     user_id = "api_user_01"
     res = app_client.post('/api/v1/identity/register', json={
         "identity_id": user_id,
         "public_key_pem": public_pem
-    })
+    }, headers=ADMIN_HEADERS)
     assert res.status_code == 200
 
     # 4. Sign update payload
+    timestamp = datetime.now(timezone.utc).isoformat()
     payload_to_sign = {
         "user_id": user_id,
         "leaf_id": "profile_record_1",
         "masked_pii_hash": hashlib.sha256(b"masked_john_doe").hexdigest(),
         "real_data_hash": hashlib.sha256(b"real_john_doe_row").hexdigest(),
-        "timestamp": "2026-07-25T12:30:00Z"
+        "timestamp": timestamp
     }
     sig_hex = sign_payload(private_pem, payload_to_sign)
 
-    # 5. Submit signed tree update
+    # 5. Submit signed tree update (SERVICE) with anti-replay fields
     update_req = dict(payload_to_sign)
     update_req["signature_hex"] = sig_hex
-    res = app_client.post('/api/v1/tree/update', json=update_req)
+    update_req["event_id"] = f"evt_{uuid.uuid4().hex[:12]}"
+    update_req["nonce"] = uuid.uuid4().hex
+
+    res = app_client.post('/api/v1/tree/update', json=update_req, headers=SERVICE_HEADERS)
     assert res.status_code == 200
     update_json = res.get_json()
     assert update_json["status"] == "SUCCESS"
     event_id = update_json["event_id"]
     next_root = update_json["calculated_next_master_root"]
 
-    # 6. Verify Master Root
-    res = app_client.get('/api/v1/tree/root')
+    # 6. Verify Master Root (VIEWER)
+    res = app_client.get('/api/v1/tree/root', headers=VIEWER_HEADERS)
     assert res.status_code == 200
     assert res.get_json()["master_root"] == next_root
 
-    # 7. Get M4 Payload
-    res = app_client.get(f'/api/v1/m4/payload/{event_id}')
+    # 7. Get M4 Payload (VIEWER)
+    res = app_client.get(f'/api/v1/m4/payload/{event_id}', headers=VIEWER_HEADERS)
     assert res.status_code == 200
     m4_data = res.get_json()
     assert m4_data["event_id"] == event_id
@@ -238,8 +263,15 @@ def test_api_workflow(app_client):
     assert m4_data["user_identity"]["signature_verified"] is True
     assert m4_data["root_transition"]["calculated_next_master_root"] == next_root
 
-    # 8. Test Write-Freeze rejection
-    app_client.post('/api/v1/freeze', json={"target": "subtree", "user_id": user_id, "reason": "Test freeze"})
-    res = app_client.post('/api/v1/tree/update', json=update_req)
+    # 8. Test Write-Freeze rejection (ADMIN freeze, then SERVICE update)
+    app_client.post('/api/v1/freeze', json={
+        "target": "subtree", "user_id": user_id, "reason": "Test freeze"
+    }, headers=ADMIN_HEADERS)
+
+    freeze_update_req = dict(payload_to_sign)
+    freeze_update_req["signature_hex"] = sig_hex
+    freeze_update_req["event_id"] = f"evt_{uuid.uuid4().hex[:12]}"
+    freeze_update_req["nonce"] = uuid.uuid4().hex
+    res = app_client.post('/api/v1/tree/update', json=freeze_update_req, headers=SERVICE_HEADERS)
     assert res.status_code == 403
     assert "frozen" in res.get_json()["error"].lower()

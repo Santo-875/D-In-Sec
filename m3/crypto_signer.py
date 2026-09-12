@@ -177,13 +177,24 @@ def verify_signature(public_key_pem: str, payload: Dict[str, Any], signature_hex
 class PublicKeyRegistry:
     """
     Registry for authorized user and developer public keys.
+    Synchronizes state to an M3Database instance if provided.
     """
 
-    def __init__(self):
+    def __init__(self, db=None):
         # Maps user_id -> public_key_pem
         self._user_keys: Dict[str, str] = {}
         # Maps fingerprint -> user_id
         self._fingerprint_map: Dict[str, str] = {}
+        self.db = db
+        
+        if self.db:
+            self._load_from_db()
+
+    def _load_from_db(self):
+        keys = self.db.load_identity_keys()
+        for identity_id, data in keys.items():
+            self._user_keys[identity_id] = data["public_key_pem"]
+            self._fingerprint_map[data["fingerprint"]] = identity_id
 
     def register_key(self, identity_id: str, public_key_pem: str) -> str:
         """
@@ -199,6 +210,12 @@ class PublicKeyRegistry:
         fingerprint = get_public_key_fingerprint(public_key_pem)
         self._user_keys[identity_id] = public_key_pem
         self._fingerprint_map[fingerprint] = identity_id
+        
+        if self.db:
+            from datetime import datetime, timezone
+            registered_at = datetime.now(timezone.utc).isoformat()
+            self.db.save_identity_key(identity_id, public_key_pem, fingerprint, registered_at)
+            
         return fingerprint
 
     def get_public_key(self, identity_id: str) -> Optional[str]:

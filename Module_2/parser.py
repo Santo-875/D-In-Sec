@@ -21,9 +21,13 @@ def parse_log_line(raw_line: str, source_file: str = "system.log") -> Optional[P
     except ValueError:
         return None
 
+    actor_id_match = re.search(r"actor_id=(\d+|[a-zA-Z0-9_\-]+)", message)
+    actor_id = actor_id_match.group(1) if actor_id_match else None
+
     return ParsedLogLine(
         timestamp=timestamp,
         level=level,
         raw_message=message,
         source_file=source_file,
+        actor_id=actor_id,
     )

@@ -1,15 +1,15 @@
 """
-Hierarchical Sparse Merkle Tree implementation for Module 3 (M3).
+Hierarchical Merkle Tree implementation for Module 3 (M3).
 
 Architecture:
   MASTER ROOT
      /     |      \\
 User Subroot  User Subroot  User Subroot ... (1 per user)
    /   |   \\
- Leaf Leaf Leaf  Hash(masked_pii_hash + "|" + real_data_hash)
+ Leaf Leaf Leaf  Hash(user_id:leaf_id:version:timestamp:masked_pii_hash:real_data_hash)
 
 Provides fast, provable state updates, O(log n) path recomputations,
-and cryptographic path inclusion/transition proofs.
+cryptographic path inclusion/transition proofs, and independent proof verification.
 """
 
 import hashlib
@@ -21,18 +21,33 @@ def compute_hash(data: str) -> str:
     return hashlib.sha256(data.encode('utf-8')).hexdigest()
 
 
-def compute_combined_leaf_hash(masked_pii_hash: str, real_data_hash: str) -> str:
+def compute_combined_leaf_hash(
+    user_id: str,
+    leaf_id: str,
+    version: int,
+    timestamp: str,
+    masked_pii_hash: str,
+    real_data_hash: str
+) -> str:
     """
-    Binds masked PII hash and real data hash into a single leaf digest.
+    Binds all 6 fields into a single leaf digest, preventing cross-user/cross-record
+    transplant attacks, version replay, and timestamp manipulation.
 
     Args:
-        masked_pii_hash (str): Hash of masked PII record from Module 2.
-        real_data_hash (str): Hash of real database record.
+        user_id: Owner identity (prevents moving leaf to another user).
+        leaf_id: Record identifier (prevents swapping leaf IDs).
+        version: Monotonic version counter (prevents version regression).
+        timestamp: ISO-8601 timestamp (prevents timestamp replay).
+        masked_pii_hash: Hash of masked PII record from Module 2.
+        real_data_hash: Hash of real database record.
 
     Returns:
-        str: SHA-256 digest of bound hashes.
+        SHA-256 digest binding all fields.
     """
-    combined = f"{masked_pii_hash.lower()}|{real_data_hash.lower()}"
+    combined = (
+        f"{user_id}:{leaf_id}:{version}:{timestamp}"
+        f":{masked_pii_hash.lower()}:{real_data_hash.lower()}"
+    )
     return compute_hash(combined)
 
 
@@ -40,17 +55,23 @@ class LeafNode:
     """
     Represents a single leaf in a user's subroot tree.
     """
-    def __init__(self, leaf_id: str, masked_pii_hash: str, real_data_hash: str, timestamp: str, version: int = 1):
+    def __init__(self, user_id: str, leaf_id: str, masked_pii_hash: str,
+                 real_data_hash: str, timestamp: str, version: int = 1):
+        self.user_id = user_id
         self.leaf_id = leaf_id
         self.masked_pii_hash = masked_pii_hash
         self.real_data_hash = real_data_hash
         self.timestamp = timestamp
         self.version = version
-        self.combined_hash = compute_combined_leaf_hash(masked_pii_hash, real_data_hash)
+        self.combined_hash = compute_combined_leaf_hash(
+            user_id, leaf_id, version, timestamp,
+            masked_pii_hash, real_data_hash
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "leaf_id": self.leaf_id,
+            "user_id": self.user_id,
             "masked_pii_hash": self.masked_pii_hash,
             "real_data_hash": self.real_data_hash,
             "combined_hash": self.combined_hash,
@@ -71,7 +92,8 @@ class UserSubroot:
         self.leaves: Dict[str, LeafNode] = {}
         self.subroot_hash: str = self.EMPTY_SUBROOT_HASH
 
-    def update_leaf(self, leaf_id: str, masked_pii_hash: str, real_data_hash: str, timestamp: str) -> Tuple[LeafNode, str, str]:
+    def update_leaf(self, leaf_id: str, masked_pii_hash: str, real_data_hash: str,
+                    timestamp: str) -> Tuple[LeafNode, str, str]:
         """
         Updates or appends a leaf in this user's subroot.
 
@@ -83,6 +105,7 @@ class UserSubroot:
         if leaf_id in self.leaves:
             existing = self.leaves[leaf_id]
             updated_leaf = LeafNode(
+                user_id=self.user_id,
                 leaf_id=leaf_id,
                 masked_pii_hash=masked_pii_hash,
                 real_data_hash=real_data_hash,
@@ -91,6 +114,7 @@ class UserSubroot:
             )
         else:
             updated_leaf = LeafNode(
+                user_id=self.user_id,
                 leaf_id=leaf_id,
                 masked_pii_hash=masked_pii_hash,
                 real_data_hash=real_data_hash,
@@ -161,21 +185,51 @@ class UserSubroot:
 
 class HierarchicalMerkleTree:
     """
-    Master Hierarchical Sparse Merkle Tree managing user subroots and Master Root.
+    Master Hierarchical Merkle Tree managing user subroots and Master Root.
+    Synchronizes state to an M3Database instance if provided.
     """
     EMPTY_MASTER_ROOT = compute_hash("EMPTY_MASTER_ROOT")
 
-    def __init__(self):
+    def __init__(self, db=None):
         # Maps user_id -> UserSubroot
         self.user_subroots: Dict[str, UserSubroot] = {}
         self.master_root: str = self.EMPTY_MASTER_ROOT
+        self.db = db
+        
+        if self.db:
+            self._load_from_db()
+
+    def _load_from_db(self):
+        leaves = self.db.load_merkle_leaves()
+        # Group by user_id
+        for leaf_data in leaves:
+            uid = leaf_data["user_id"]
+            lid = leaf_data["leaf_id"]
+            
+            subroot = self.get_or_create_subroot(uid)
+            subroot.leaves[lid] = LeafNode(
+                user_id=uid,
+                leaf_id=lid,
+                masked_pii_hash=leaf_data["masked_pii_hash"],
+                real_data_hash=leaf_data["real_data_hash"],
+                timestamp=leaf_data["timestamp"],
+                version=leaf_data["version"]
+            )
+            
+        # Recompute all subroots
+        for subroot in self.user_subroots.values():
+            subroot._recompute_subroot()
+            
+        # Recompute master root
+        self._recompute_master_root()
 
     def get_or_create_subroot(self, user_id: str) -> UserSubroot:
         if user_id not in self.user_subroots:
             self.user_subroots[user_id] = UserSubroot(user_id)
         return self.user_subroots[user_id]
 
-    def update_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, timestamp: str) -> Dict[str, Any]:
+    def update_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str,
+                    real_data_hash: str, timestamp: str) -> Dict[str, Any]:
         """
         Executes O(log n) path update: leaf -> user subroot -> master root.
 
@@ -197,6 +251,17 @@ class HierarchicalMerkleTree:
 
         subroot_sibling_proof = self._get_master_sibling_proof(user_id)
         leaf_sibling_proof = subroot.get_leaf_proof(leaf_id)
+        
+        if self.db:
+            self.db.save_merkle_leaf(
+                user_id=user_id,
+                leaf_id=leaf_id,
+                masked_pii_hash=masked_pii_hash,
+                real_data_hash=real_data_hash,
+                combined_hash=leaf.combined_hash,
+                timestamp=timestamp,
+                version=leaf.version
+            )
 
         return {
             "user_id": user_id,
@@ -288,27 +353,89 @@ class HierarchicalMerkleTree:
             "subroot_proof": master_proof
         }
 
-    def check_leaf_integrity(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    def check_leaf_integrity(self, user_id: str, leaf_id: str,
+                             masked_pii_hash: str, real_data_hash: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Deterministically checks leaf integrity against current tree state.
+
+        Uses the leaf's stored version and timestamp for hash recomputation,
+        comparing against the presented masked_pii_hash and real_data_hash.
 
         Returns:
             Tuple[bool, Optional[str], Optional[str]]: (is_valid, expected_hash, actual_hash)
         """
-        expected_combined = compute_combined_leaf_hash(masked_pii_hash, real_data_hash)
         if user_id not in self.user_subroots:
-            return False, expected_combined, None
+            return False, None, None
         subroot = self.user_subroots[user_id]
         if leaf_id not in subroot.leaves:
-            return False, expected_combined, None
+            return False, None, None
 
         leaf = subroot.leaves[leaf_id]
+        # Recompute what the hash SHOULD be with the presented data + stored metadata
+        expected_combined = compute_combined_leaf_hash(
+            user_id, leaf_id, leaf.version, leaf.timestamp,
+            masked_pii_hash, real_data_hash
+        )
         is_valid = (leaf.combined_hash == expected_combined)
         return is_valid, expected_combined, leaf.combined_hash
 
-    def verify_leaf_integrity(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str) -> bool:
+    def verify_leaf_integrity(self, user_id: str, leaf_id: str,
+                              masked_pii_hash: str, real_data_hash: str) -> bool:
         """
         Verifies that a leaf's masked PII and real data hashes match current state and have not been tampered with.
         """
         is_valid, _, _ = self.check_leaf_integrity(user_id, leaf_id, masked_pii_hash, real_data_hash)
         return is_valid
+
+    @staticmethod
+    def verify_proof(
+        leaf_hash: str,
+        leaf_proof: List[Dict[str, str]],
+        subroot_proof: List[Dict[str, str]],
+        user_id: str,
+        claimed_master_root: str
+    ) -> Tuple[bool, str]:
+        """
+        Independently verifies a Merkle inclusion proof by walking
+        leaf → subroot → master root and comparing against claimed root.
+
+        This method does NOT require access to the tree state — it operates
+        purely on the proof path, making it suitable for external/third-party
+        verification.
+
+        Args:
+            leaf_hash: The combined hash of the leaf being verified.
+            leaf_proof: Sibling hashes for the leaf-to-subroot path.
+            subroot_proof: Sibling hashes for the subroot-to-master path.
+            user_id: User ID (needed for subroot hash computation).
+            claimed_master_root: The master root to verify against.
+
+        Returns:
+            Tuple[bool, str]: (is_valid, computed_master_root)
+        """
+        # Walk leaf proof to compute subroot internal hash
+        current = leaf_hash
+        for step in leaf_proof:
+            sibling = step["hash"]
+            if step["direction"] == "right":
+                current = compute_hash(f"{current}:{sibling}")
+            else:
+                current = compute_hash(f"{sibling}:{current}")
+
+        # Apply user binding to get subroot hash
+        computed_subroot = compute_hash(f"USER:{user_id}:{current}")
+
+        # Walk subroot proof to compute master root
+        current = computed_subroot
+        for step in subroot_proof:
+            sibling = step["hash"]
+            if step["direction"] == "right":
+                current = compute_hash(f"{current}:{sibling}")
+            else:
+                current = compute_hash(f"{sibling}:{current}")
+
+        # Apply master binding
+        computed_master = compute_hash(f"MASTER:{current}")
+
+        is_valid = (computed_master == claimed_master_root)
+        return is_valid, computed_master

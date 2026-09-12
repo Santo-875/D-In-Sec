@@ -23,6 +23,7 @@ class ParsedLogLine(BaseModel):
     raw_message:str
     template: Logtemplate=Logtemplate.UNKNOWN
     source_file:str="system.log"
+    actor_id: Optional[str] = None
 class PIIEntityFound(BaseModel):
     pii_type:str
     count:int
@@ -36,6 +37,7 @@ class IncidentType(str,Enum):
     BRUTE_FORCE = "BRUTE_FORCE"
     MALICIOUS_UPLOAD = "MALICIOUS_UPLOAD"
     UNAUTHORIZED_ACCESS = "UNAUTHORIZED_ACCESS"
+    PII_LEAK = "PII_LEAK"
     BENIGN = "BENIGN"
     UNKNOWN = "UNKNOWN"
 class Severity(str,Enum):

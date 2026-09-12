@@ -1,5 +1,7 @@
 import re
 import hashlib
+import hmac
+import os
 
 PII_PATTERNS = {
     "AADHAAR": re.compile(r"(?:(?<=aadhaar=)[\w\s-]+|\b\d{4}[-\s]?\d{4}[-\s]?\d{4,6}\b)"),
@@ -14,24 +16,29 @@ PII_PATTERNS = {
     "IP_ADDRESS": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
 }
 
-SECRET_SALT = "DInSec_Secret_Salt_8Xq2zL9mP!"
+SECRET_KEY = os.environ.get("PII_HASH_KEY", "DInSec_Secret_Salt_8Xq2zL9mP!").encode()
 
-def mask_structured_pii(text: str) -> tuple[str, list[dict]]:
+def _hash_ip(ip: str) -> str:
+    return hmac.new(SECRET_KEY, ip.encode(), hashlib.sha256).hexdigest()[:16]
+
+def mask_structured_pii(text: str) -> tuple[str, list[dict], bool]:
     entities_found = []
+    has_leak = False
 
     for pii_type, pattern in PII_PATTERNS.items():
         matches = pattern.findall(text)
         if matches:
             entities_found.append({"pii_type": pii_type, "count": len(matches)})
             if pii_type == "IP_ADDRESS":
-                text = pattern.sub(lambda m: f"[HASHED_IP_{hashlib.sha256((m.group(0) + SECRET_SALT).encode()).hexdigest()[:16]}]", text)
+                text = pattern.sub(lambda m: f"[HASHED_IP_{_hash_ip(m.group(0))}]", text)
             else:
+                has_leak = True
                 text = pattern.sub(f"[REDACTED_{pii_type}]", text)
 
-    return text, entities_found
+    return text, entities_found, has_leak
 
 
-def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list]:
+def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list, bool]:
     """
     Dynamic masking using admin-defined FieldSchema records.
     Falls back to mask_structured_pii if no schema fields are provided.
@@ -45,6 +52,7 @@ def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list]:
         return mask_structured_pii(text)
 
     entities_found = []
+    has_leak = False
     for field in schema_fields:
         regex = field.get('regex_pattern')
         mask  = field.get('mask_label') or f"[REDACTED_{field.get('pii_category', 'PII')}]"
@@ -58,6 +66,8 @@ def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list]:
             if matches:
                 entities_found.append({'pii_type': cat, 'count': len(matches)})
                 text = pattern.sub(mask, text)
+                if cat != 'IP_ADDRESS':
+                    has_leak = True
         except re.error:
             # Skip invalid regex patterns
             continue
@@ -67,9 +77,13 @@ def mask_from_schema(text: str, schema_fields: list) -> tuple[str, list]:
     ip_matches = ip_pattern.findall(text)
     if ip_matches:
         entities_found.append({'pii_type': 'IP_ADDRESS', 'count': len(ip_matches)})
-        text = ip_pattern.sub(
-            lambda m: f"[HASHED_IP_{hashlib.sha256((m.group(0) + SECRET_SALT).encode()).hexdigest()[:16]}]",
-            text
-        )
+        text = ip_pattern.sub(lambda m: f"[HASHED_IP_{_hash_ip(m.group(0))}]", text)
 
-    return text, entities_found
+    # Check for structured defaults in case schema missed them
+    if not has_leak:
+        for pii_type in ["AADHAAR", "PAN", "CREDIT_CARD", "PHONE"]:
+            if PII_PATTERNS[pii_type].search(text):
+                has_leak = True
+                text = PII_PATTERNS[pii_type].sub(f"[REDACTED_{pii_type}]", text)
+
+    return text, entities_found, has_leak
