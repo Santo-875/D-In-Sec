@@ -14,8 +14,11 @@ Security:
 Runs independently on port 5001.
 """
 
+import os
+import json
 import uuid
 import re
+import time
 from flask import Flask, request, jsonify
 from m3.crypto_signer import (
     PublicKeyRegistry,
@@ -36,12 +39,12 @@ from m3.anchoring import ExternalAnchor
 from datetime import datetime, timezone
 
 
-def create_m3_app():
+def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log"):
     app = Flask(__name__)
 
     # 1. Initialize Persistence Layer
-    db = M3Database("m3.db")
-    external_anchor = ExternalAnchor("external_anchor.log")
+    db = M3Database(db_path)
+    external_anchor = ExternalAnchor(anchor_path)
 
     # 2. Initialize Core M3 Engine Instances (Loaded from DB)
     registry = PublicKeyRegistry(db=db)
@@ -49,6 +52,27 @@ def create_m3_app():
     audit_log = AppendOnlyAuditLog(db=db, external_anchor=external_anchor)
     freeze_mgr = FreezeManager(db=db)
     replay_guard = ReplayGuard(db=db)
+    
+    app.tree = tree
+    app.config['M3_DB_PATH'] = db_path
+
+    # 3. Resume pending AI jobs
+    import threading
+    def _resume_ai_job(facts_copy: dict, j_id: str):
+        try:
+            alert = generate_breach_alert(facts_copy)
+            record_breach_alert_to_db(alert)
+            db.update_ai_job_status(j_id, "COMPLETED", datetime.now(timezone.utc).isoformat())
+        except Exception as e:
+            db.update_ai_job_status(j_id, f"FAILED: {str(e)}", datetime.now(timezone.utc).isoformat())
+
+    for job in db.get_pending_ai_jobs():
+        thread = threading.Thread(
+            target=_resume_ai_job,
+            args=(job["facts"], job["job_id"]),
+            daemon=True
+        )
+        thread.start()
 
     # ── Public Endpoints ─────────────────────────────────────────────────
 
@@ -60,7 +84,7 @@ def create_m3_app():
             "module": "Module 3 — Identity & Merkle Tree Integrity Engine",
             "master_root": tree.master_root,
             "replay_guard_stats": replay_guard.get_stats()
-        }), 200
+        }),200
 
     # ── ADMIN Endpoints ──────────────────────────────────────────────────
 
@@ -103,9 +127,6 @@ def create_m3_app():
     @app.route('/api/v1/identity/revoke', methods=['POST'])
     @require_role("ADMIN")
     def revoke_identity():
-        """
-        Revokes a public key for a user/developer identity. ADMIN only.
-        """
         data = request.get_json() or {}
         identity_id = data.get("identity_id")
 
@@ -150,7 +171,7 @@ def create_m3_app():
         Verifies that the current Master Root mathematically matches the
         latest checkpoint written to the external anchor file.
         """
-        anchor_file = audit_log.external_anchor
+        anchor_file = audit_log.external_anchor.anchor_file_path
         if not os.path.exists(anchor_file):
             return jsonify({"status": "FAILED", "reason": "No external anchor file found"}), 404
             
@@ -160,7 +181,22 @@ def create_m3_app():
         if not lines:
             return jsonify({"status": "FAILED", "reason": "External anchor file is empty"}), 404
             
-        latest_anchor = lines[-1].split(" : ")[1] if " : " in lines[-1] else lines[-1]
+        try:
+            # Handle potential non-JSON lines or multiple lines
+            latest_line = lines[-1]
+            if isinstance(latest_line, str):
+                latest_anchor_data = json.loads(latest_line)
+            else:
+                latest_anchor_data = latest_line
+                
+            if isinstance(latest_anchor_data, str):
+                latest_anchor_data = json.loads(latest_anchor_data)
+                
+            latest_anchor = latest_anchor_data.get("master_root")
+            if not latest_anchor:
+                return jsonify({"status": "FAILED", "reason": "No master_root in anchor data"}), 400
+        except (json.JSONDecodeError, TypeError) as e:
+            return jsonify({"status": "FAILED", "reason": f"Anchor file format is invalid: {str(e)}"}), 400
         
         if latest_anchor == tree.master_root:
             return jsonify({
@@ -240,43 +276,45 @@ def create_m3_app():
             return jsonify({"error": "Missing required parameters: user_id, leaf_id, masked_pii_hash, real_data_hash, signature_hex, timestamp, event_id, nonce, version"}), 400
 
         # Input Validation
+        try:
+            version = int(version)
+            if version <= 0:
+                raise ValueError
+        except ValueError:
+            return jsonify({"error": "Version must be a positive integer"}), 400
+            
         if not re.match(r"^[a-fA-F0-9]{64}$", masked_pii_hash) or not re.match(r"^[a-fA-F0-9]{64}$", real_data_hash):
             return jsonify({"error": "Invalid hash format. Must be 64-character hex."}), 400
-        if len(user_id) > 64 or len(leaf_id) > 64 or len(event_id) > 64 or len(nonce) > 64:
-            return jsonify({"error": "Identifiers exceed maximum allowed length."}), 400
+        
+        # ID and Nonce Validation
+        id_pattern = r"^[a-zA-Z0-9_-]{1,64}$"
+        if not re.match(id_pattern, user_id) or not re.match(id_pattern, leaf_id) or not re.match(id_pattern, event_id):
+            return jsonify({"error": "Identifiers must be alphanumeric with underscores/dashes and <= 64 chars."}), 400
+        if not re.match(r"^[a-zA-Z0-9_-]{16,64}$", nonce):
+            return jsonify({"error": "Nonce must be high-entropy alphanumeric and between 16 to 64 chars."}), 400
 
-        # 1. Check write-freeze status
-        frozen, freeze_reason = freeze_mgr.is_frozen(user_id)
-        if frozen:
-            return jsonify({
-                "error": "Write operations are currently frozen",
-                "reason": freeze_reason
-            }), 403
-
-        # 2. Anti-replay validation
-        replay_valid, replay_reason = replay_guard.validate_request(
-            event_id=event_id,
-            nonce=nonce,
-            timestamp=timestamp,
-            user_id=user_id,
-            leaf_id=leaf_id,
-            version=version
-        )
-        if not replay_valid:
-            return jsonify({
-                "error": "Replay attack detected",
-                "detail": replay_reason
-            }), 409
-
-        # 3. Look up pre-registered public key — NO auto-registration
+        # Timestamp Validation (ISO-8601 UTC)
+        try:
+            # Enforce UTC timezone by replacing Z with +00:00 for strict parsing
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            if dt.tzinfo is None:
+                raise ValueError
+        except ValueError:
+            return jsonify({"error": "Timestamp must be a valid ISO-8601 UTC string (e.g., ending with Z or +00:00)."}), 400
+        # 1. Look up pre-registered public key — NO auto-registration
         public_key_pem = registry.get_public_key(user_id)
         if not public_key_pem:
             return jsonify({
                 "error": f"No public key registered for identity '{user_id}'",
                 "detail": "Keys must be pre-registered via /identity/register by an ADMIN."
             }), 401
+        elif public_key_pem == "REVOKED":
+            return jsonify({
+                "error": f"Identity '{user_id}' has been revoked.",
+                "detail": "Cannot accept updates from a revoked identity."
+            }), 401
 
-        # 4. Reconstruct signed payload and verify signature
+        # 3. Reconstruct signed payload and verify signature
         signable_payload = {
             "user_id": user_id,
             "leaf_id": leaf_id,
@@ -295,46 +333,79 @@ def create_m3_app():
 
         fingerprint = get_public_key_fingerprint(public_key_pem)
 
-        # 5. Get old leaf hash if existing
+        # 4. Get old leaf hash if existing
         old_subroot = tree.user_subroots.get(user_id)
         old_leaf_hash = old_subroot.leaves[leaf_id].combined_hash if old_subroot and leaf_id in old_subroot.leaves else None
 
-        # 6. Execute hierarchical tree update and DB save in a transaction
+        # 5. Execute hierarchical tree update and DB save in a single transaction
         from contextlib import closing
-        with closing(db.get_connection()) as conn:
-            with conn:
-                update_proof = tree.update_leaf(
-                    user_id=user_id,
-                    leaf_id=leaf_id,
-                    masked_pii_hash=masked_pii_hash,
-                    real_data_hash=real_data_hash,
-                    timestamp=timestamp,
-                    conn=conn
-                )
+        try:
+            with closing(db.get_connection()) as conn:
+                with conn:
+                    # 5a. Check write-freeze status
+                    frozen, freeze_reason = freeze_mgr.is_frozen(user_id)
+                    if frozen:
+                        return jsonify({
+                            "error": "Write operations are currently frozen",
+                            "reason": freeze_reason
+                        }), 403
 
-                # 7. Log event in append-only log and permanent root chain
-                audit_entry = audit_log.log_event(
-                    user_id=user_id,
-                    leaf_id=leaf_id,
-                    old_leaf_hash=old_leaf_hash,
-                    new_leaf_hash=update_proof["leaf"]["combined_hash"],
-                    old_master_root=update_proof["old_master_root"],
-                    new_master_root=update_proof["new_master_root"],
-                    signature_hex=signature_hex,
-                    signer_fingerprint=fingerprint,
-                    timestamp=timestamp,
-                    event_id=event_id,
-                    conn=conn
-                )
+                    # 5b. Anti-replay validation (locks in-memory and writes to DB via conn)
+                    replay_valid, replay_reason = replay_guard.validate_request(
+                        event_id=event_id,
+                        nonce=nonce,
+                        timestamp=timestamp,
+                        user_id=user_id,
+                        leaf_id=leaf_id,
+                        version=version,
+                        conn=conn
+                    )
+                    if not replay_valid:
+                        return jsonify({
+                            "error": "Replay attack detected",
+                            "detail": replay_reason
+                        }), 409
 
-                # 8. Format M4 payload
-                m4_payload = M4PayloadFormatter.format_m4_payload(
-                    audit_entry=audit_entry,
-                    update_proof=update_proof,
-                    signature_valid=True,
-                    freeze_status=freeze_mgr.get_freeze_status()
-                )
-                db.save_m4_payload(audit_entry.event_id, m4_payload, conn=conn)
+                    # 5c. Update Merkle Tree
+                    update_proof = tree.update_leaf(
+                        user_id=user_id,
+                        leaf_id=leaf_id,
+                        masked_pii_hash=masked_pii_hash,
+                        real_data_hash=real_data_hash,
+                        timestamp=timestamp,
+                        conn=conn
+                    )
+
+                    # 5d. Log event in append-only log and permanent root chain
+                    audit_entry = audit_log.log_event(
+                        user_id=user_id,
+                        leaf_id=leaf_id,
+                        old_leaf_hash=old_leaf_hash,
+                        new_leaf_hash=update_proof["leaf"]["combined_hash"],
+                        old_master_root=update_proof["old_master_root"],
+                        new_master_root=update_proof["new_master_root"],
+                        signature_hex=signature_hex,
+                        signer_fingerprint=fingerprint,
+                        timestamp=timestamp,
+                        event_id=event_id,
+                        conn=conn
+                    )
+
+                    # 5e. Format and save M4 payload
+                    m4_payload = M4PayloadFormatter.format_m4_payload(
+                        audit_entry=audit_entry,
+                        update_proof=update_proof,
+                        signature_valid=True,
+                        freeze_status=freeze_mgr.get_freeze_status()
+                    )
+                    db.save_m4_payload(audit_entry.event_id, m4_payload, conn=conn)
+        except Exception as e:
+            print(f"Error updating tree: {str(e)}")
+            # Rollback in-memory state to match DB
+            tree._load_from_db()
+            audit_log._load_from_db()
+            replay_guard._load_from_db()
+            return jsonify({"error": "Failed to update tree", "detail": str(e)}), 500
 
         return jsonify({
             "status": "SUCCESS",
@@ -363,9 +434,13 @@ def create_m3_app():
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def get_proof(user_id, leaf_id):
         """Generates cryptographic inclusion proof for a leaf."""
+        if user_id not in tree.user_subroots:
+            return jsonify({"error": f"User '{user_id}' not found"}), 404
+        
         proof = tree.generate_full_proof(user_id, leaf_id)
-        if not proof:
-            return jsonify({"error": f"Leaf '{leaf_id}' for user '{user_id}' not found"}), 404
+        if proof is None:
+            return jsonify({"error": f"Leaf '{leaf_id}' not found for user '{user_id}'"}), 404
+            
         return jsonify(proof), 200
 
     @app.route('/api/v1/tree/verify-leaf', methods=['POST'])
@@ -390,6 +465,11 @@ def create_m3_app():
         if not all([user_id, leaf_id, masked_pii_hash, real_data_hash]):
             return jsonify({"error": "Missing required parameters: user_id, leaf_id, masked_pii_hash, real_data_hash"}), 400
 
+        # Prompt Injection Protection: validate IDs before they ever reach the AI
+        id_pattern = r"^[a-zA-Z0-9_-]{1,64}$"
+        if not re.match(id_pattern, user_id) or not re.match(id_pattern, leaf_id):
+            return jsonify({"error": "Identifiers must be alphanumeric with underscores/dashes and <= 64 chars."}), 400
+
         # 1. Deterministic SHA-256 check — no AI involved in this decision
         is_valid, expected_hash, actual_hash = tree.check_leaf_integrity(
             user_id, leaf_id, masked_pii_hash, real_data_hash
@@ -402,6 +482,10 @@ def create_m3_app():
         }
 
         if not is_valid:
+            if expected_hash is None and actual_hash is None:
+                response_body["error"] = "LEAF_NOT_FOUND"
+                return jsonify(response_body), 404
+                
             detected_at = datetime.now(timezone.utc).isoformat()
             facts = {
                 "affected_user": user_id,
@@ -425,7 +509,22 @@ def create_m3_app():
                 f"AI breach alert generation and SOC notification dispatched in background."
             )
 
-            # 2. Fire AI alert generation + DB write in background — never blocks the response
+            # 2. Rate Limiting / Deduplication for Breach Alerts
+            if not hasattr(app, '_alert_cache'):
+                app._alert_cache = {}
+            
+            cache_key = f"{user_id}:{leaf_id}"
+            now = time.time()
+            if cache_key in app._alert_cache and (now - app._alert_cache[cache_key]) < 300:
+                response_body["message"] = (
+                    f"Tamper detected for user '{user_id}' record '{leaf_id}'. "
+                    f"Alert already dispatched recently (rate-limited)."
+                )
+                return jsonify(response_body), 400
+            
+            app._alert_cache[cache_key] = now
+
+            # 3. Fire AI alert generation + DB write in background — never blocks the response
             job_id = f"job_{uuid.uuid4().hex[:12]}"
             db.save_ai_job(job_id, "PENDING", facts, detected_at)
 
@@ -497,12 +596,22 @@ def create_m3_app():
         if not all([user_id, leaf_id, masked_pii_hash, real_data_hash]):
             return jsonify({"error": "Missing required parameters"}), 400
 
+        # Prompt Injection Protection: validate IDs before processing
+        id_pattern = r"^[a-zA-Z0-9_-]{1,64}$"
+        if not re.match(id_pattern, user_id) or not re.match(id_pattern, leaf_id):
+            return jsonify({"error": "Identifiers must be alphanumeric with underscores/dashes and <= 64 chars."}), 400
+
         # Step 1: Check leaf integrity (recalculate hash from current DB)
         is_leaf_valid, expected_hash, actual_hash = tree.check_leaf_integrity(
             user_id, leaf_id, masked_pii_hash, real_data_hash
         )
 
         if not is_leaf_valid:
+            if expected_hash is None and actual_hash is None:
+                return jsonify({
+                    "status": "FAILED",
+                    "reason": "LEAF_NOT_FOUND"
+                }), 404
             return jsonify({
                 "status": "FAILED",
                 "reason": "Leaf hash recalculation mismatch. Tampering detected."
@@ -528,11 +637,38 @@ def create_m3_app():
                 "reason": "Merkle proof verification failed. Path has been tampered."
             }), 400
 
+        # Step 4: Compare with external anchor
+        anchor_file = audit_log.external_anchor.anchor_file_path
+        anchor_mismatch = False
+        latest_anchor = None
+        if os.path.exists(anchor_file):
+            with open(anchor_file, 'r') as f:
+                lines = [l.strip() for l in f.readlines() if l.strip()]
+            if lines:
+                try:
+                    latest_anchor_data = json.loads(lines[-1])
+                    if isinstance(latest_anchor_data, str):
+                        latest_anchor_data = json.loads(latest_anchor_data)
+                    latest_anchor = latest_anchor_data.get("master_root")
+                    if latest_anchor and latest_anchor != computed_master:
+                        anchor_mismatch = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                    
+        if anchor_mismatch:
+            return jsonify({
+                "status": "FAILED",
+                "reason": "Master root perfectly matches DB but diverges from external anchor! Severe tampering detected.",
+                "expected_anchor": latest_anchor,
+                "actual_root": computed_master
+            }), 400
+
         return jsonify({
             "status": "VERIFIED",
-            "message": "End-to-end Merkle verification succeeded.",
+            "message": "End-to-end Merkle verification succeeded, including external anchor match.",
             "leaf_hash": actual_hash,
-            "master_root": computed_master
+            "master_root": computed_master,
+            "anchored_root": latest_anchor
         }), 200
 
     @app.route('/api/v1/audit/logs', methods=['GET'])

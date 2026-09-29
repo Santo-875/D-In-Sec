@@ -10,7 +10,7 @@ It achieves this through a **Hierarchical Merkle Tree with cryptographic inclusi
 Unlike traditional simple lists of hashes, M3 organizes user data into a **Hierarchical Merkle Tree**.
 - Every user gets their own isolated **Subtree**.
 - A user's subtree roots up into a single **Master Root**.
-- When a user's data is updated, an `O(log N)` operation recalculates only their branch, allowing high-throughput updates without recalculating the entire database.
+- When a user's data is updated, a deterministic operation recalculates only their branch, allowing precise updates and cryptographic inclusion proofs.
 
 ### 2. End-to-End Cryptographic Verification
 When data is written, M3 generates an **Inclusion Proof (M4 Payload)**. This proof contains the exact sequence of sibling hashes needed to mathematically trace the data's leaf hash all the way up to the Master Root.
@@ -28,8 +28,8 @@ These fields are strictly validated and persistently tracked in SQLite across se
 ### 4. Atomic Transactions & Audit Integrity
 Tree updates, root checkpoints, replay guard records, and the append-only audit log are executed within a **single atomic SQLite transaction**. This guarantees that the system never enters an inconsistent state. The audit log is completely append-only and cryptographically chained, meaning an attacker cannot insert or delete events from the middle of the history.
 
-### 5. External Anchoring
-To prevent an attacker from rolling back the entire database to a previous valid state, the M3 Master Root is periodically anchored to an external log file (`external_anchor.log`). Verification ensures the internal Master Root perfectly matches this external anchor.
+### 5. External Root Anchor Prototype
+To prevent an attacker from rolling back the entire database to a previous valid state, the M3 Master Root is periodically anchored to an external log file (`external_anchor.log`). Verification ensures the internal Master Root perfectly matches this external root anchor prototype.
 
 ## Security Overview
 

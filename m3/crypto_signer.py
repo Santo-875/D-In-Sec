@@ -193,7 +193,10 @@ class PublicKeyRegistry:
     def _load_from_db(self):
         keys = self.db.load_identity_keys()
         for identity_id, data in keys.items():
-            if not data.get("is_revoked", False):
+            if data.get("is_revoked", False):
+                self._user_keys[identity_id] = "REVOKED"
+                # If they are revoked, they should not map fingerprint back
+            else:
                 self._user_keys[identity_id] = data["public_key_pem"]
                 self._fingerprint_map[data["fingerprint"]] = identity_id
 

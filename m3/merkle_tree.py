@@ -200,6 +200,9 @@ class HierarchicalMerkleTree:
             self._load_from_db()
 
     def _load_from_db(self):
+        self.user_subroots.clear()
+        self.master_root = self.EMPTY_MASTER_ROOT
+        
         leaves = self.db.load_merkle_leaves()
         # Group by user_id
         for leaf_data in leaves:

@@ -1,5 +1,5 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}SOC Dashboard — D-In-Sec{% endblock %}
+{% block title %}SOC Dashboard - D-In-Sec{% endblock %}
 {% block page_title %}Security Operations Center{% endblock %}
 
 {% block content %}
@@ -13,7 +13,7 @@
         {% set open_count   = alerts | selectattr('status', 'equalto', 'Open') | list | length %}
         {% if tamper_count > 0 %}
         <span style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#ef4444; font-size:11px; padding:4px 12px; border-radius:20px; font-weight:600;">
-            🔐 {{ tamper_count }} Tampering Alert{{ 's' if tamper_count != 1 }}
+             {{ tamper_count }} Tampering Alert{{ 's' if tamper_count != 1 }}
         </span>
         {% endif %}
         <span style="background:rgba(100,116,139,0.1); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:4px 12px; border-radius:20px;">
@@ -48,9 +48,9 @@
                 <td>
                     <div style="display:flex; align-items:center; gap:8px;">
                         {% if is_tamper %}
-                        <span style="font-size:16px;" title="Merkle Tree Integrity Violation">🔐</span>
+                        <span style="font-size:16px;" title="Merkle Tree Integrity Violation"></span>
                         {% else %}
-                        <span style="font-size:16px;" title="AI Classified Incident">🤖</span>
+                        <span style="font-size:16px;" title="AI Classified Incident"></span>
                         {% endif %}
                         <div>
                             <span style="font-weight:600; {% if is_tamper %}color:#ef4444;{% endif %}">
@@ -85,7 +85,7 @@
 
                 <td style="font-variant-numeric: tabular-nums;">
                     {% if is_tamper %}
-                        <span title="Deterministic — mathematical certainty" style="color:var(--red); font-weight:600;">100%</span>
+                        <span title="Deterministic - mathematical certainty" style="color:var(--red); font-weight:600;">100%</span>
                     {% else %}
                         {{ (alert.confidence * 100)|round|int }}%
                     {% endif %}
@@ -101,7 +101,7 @@
                     {% elif is_tamper %}
                         <span style="font-size:10px; color:#ef4444; font-family:monospace;">tamper</span>
                     {% else %}
-                        <span style="color:var(--muted); font-size:11px;">—</span>
+                        <span style="color:var(--muted); font-size:11px;">-</span>
                     {% endif %}
                 </td>
 
@@ -124,7 +124,7 @@
                         <a href="{{ url_for('admin.soc_export_cert_in', alert_id=alert.id) }}"
                            class="btn btn-sm btn-primary"
                            title="Export CERT-In Compliance Report PDF">
-                            {% if is_tamper %}🔐{% endif %} Export Report
+                            {% if is_tamper %}{% endif %} Export Report
                         </a>
                         {% endif %}
                     </div>
@@ -133,7 +133,7 @@
             {% else %}
             <tr>
                 <td colspan="8" style="text-align:center; color:var(--muted); padding:48px;">
-                    <div style="font-size:32px; margin-bottom:12px;">✅</div>
+                    <div style="font-size:32px; margin-bottom:12px;"></div>
                     No security incidents detected. System integrity is verified.
                 </td>
             </tr>
@@ -144,8 +144,8 @@
 
 {% if alerts %}
 <div style="margin-top:16px; display:flex; gap:20px; font-size:12px; color:var(--muted);">
-    <span>🔐 = Merkle Tree integrity violation (deterministic, 100% certainty)</span>
-    <span>🤖 = AI-classified behavioural anomaly</span>
+    <span> = Merkle Tree integrity violation (deterministic, 100% certainty)</span>
+    <span> = AI-classified behavioural anomaly</span>
 </div>
 {% endif %}
 {% endblock %}

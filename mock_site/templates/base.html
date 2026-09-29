@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="D-In-Sec Corporate Document Verification Portal — Secure identity verification and document management system.">
+    <meta name="description" content="D-In-Sec Corporate Document Verification Portal - Secure identity verification and document management system.">
     <title>{% block title %}D-In-Sec Portal{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,11 +30,22 @@
             <span class="brand-badge">Portal</span>
         </div>
         <div class="nav-links">
+            <button id="theme-toggle" class="nav-btn nav-btn-ghost theme-btn" aria-label="Toggle Dark Mode" style="padding: 0.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="moon-icon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
             {% if current_user.is_authenticated %}
                 <div class="nav-user">
                     <div class="user-avatar">{{ current_user.username[0]|upper }}</div>
                     <span class="user-name">{{ current_user.username }}</span>
                 </div>
+                {% if current_user.is_admin %}
+                    <a href="{{ url_for('soc.index') }}" class="nav-btn nav-btn-outline" style="border-color: #ef4444; color: #ef4444;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        </svg>
+                        SOC
+                    </a>
+                {% endif %}
                 <a href="{{ url_for('auth.logout') }}" class="nav-btn nav-btn-outline" id="logout-btn">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -84,10 +95,12 @@
     <footer class="footer">
         <div class="footer-inner">
             <span class="footer-brand">D-In-Sec</span>
-            <span class="footer-sep">·</span>
+            <span class="footer-sep">-</span>
             <span>Corporate Document Verification Portal</span>
-            <span class="footer-sep">·</span>
-            <span class="footer-muted">Module 1 — Mock Site</span>
+            <span class="footer-sep">-</span>
+            <a href="#" style="color: var(--text-secondary);">Terms of Service</a>
+            <span class="footer-sep">-</span>
+            <a href="#" style="color: var(--text-secondary);">Privacy Policy</a>
         </div>
     </footer>
 

@@ -42,10 +42,15 @@ def keys():
 
 @pytest.fixture
 def app_client():
-    app = create_m3_app()
+    db_path = f"test_m3_{uuid.uuid4().hex[:8]}.db"
+    app = create_m3_app(db_path=db_path)
     app.config['TESTING'] = True
     with app.test_client() as client:
         yield client
+    import os
+    if os.path.exists(db_path):
+        try: os.remove(db_path)
+        except: pass
 
 
 def test_rsa_signature_verification(keys):
@@ -232,15 +237,16 @@ def test_api_workflow(app_client):
         "leaf_id": "profile_record_1",
         "masked_pii_hash": hashlib.sha256(b"masked_john_doe").hexdigest(),
         "real_data_hash": hashlib.sha256(b"real_john_doe_row").hexdigest(),
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        "event_id": f"evt_{uuid.uuid4().hex[:12]}",
+        "nonce": uuid.uuid4().hex,
+        "version": 1
     }
     sig_hex = sign_payload(private_pem, payload_to_sign)
 
     # 5. Submit signed tree update (SERVICE) with anti-replay fields
     update_req = dict(payload_to_sign)
     update_req["signature_hex"] = sig_hex
-    update_req["event_id"] = f"evt_{uuid.uuid4().hex[:12]}"
-    update_req["nonce"] = uuid.uuid4().hex
 
     res = app_client.post('/api/v1/tree/update', json=update_req, headers=SERVICE_HEADERS)
     assert res.status_code == 200
@@ -269,9 +275,9 @@ def test_api_workflow(app_client):
     }, headers=ADMIN_HEADERS)
 
     freeze_update_req = dict(payload_to_sign)
-    freeze_update_req["signature_hex"] = sig_hex
     freeze_update_req["event_id"] = f"evt_{uuid.uuid4().hex[:12]}"
     freeze_update_req["nonce"] = uuid.uuid4().hex
+    freeze_update_req["signature_hex"] = sign_payload(private_pem, freeze_update_req)
     res = app_client.post('/api/v1/tree/update', json=freeze_update_req, headers=SERVICE_HEADERS)
     assert res.status_code == 403
     assert "frozen" in res.get_json()["error"].lower()

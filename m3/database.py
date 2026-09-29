@@ -122,6 +122,37 @@ class M3Database:
                         timestamp TEXT NOT NULL
                     )
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS replay_guard_events (
+                        event_id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS replay_guard_nonces (
+                        nonce TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS replay_guard_versions (
+                        user_id TEXT NOT NULL,
+                        leaf_id TEXT NOT NULL,
+                        version INTEGER NOT NULL,
+                        PRIMARY KEY (user_id, leaf_id)
+                    )
+                ''')
+                
+                # AI Jobs
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS ai_jobs (
+                        job_id TEXT PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        facts_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        completed_at TEXT
+                    )
+                ''')
             conn.commit()
 
     # --- Identity Keys ---
@@ -153,15 +184,20 @@ class M3Database:
                 return cursor.rowcount > 0
 
     # --- Merkle Leaves ---
-    def save_merkle_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, combined_hash: str, timestamp: str, version: int):
-        with closing(self.get_connection()) as conn:
-            with conn:
-                conn.execute(
-                    """INSERT OR REPLACE INTO merkle_leaves 
-                       (user_id, leaf_id, masked_pii_hash, real_data_hash, combined_hash, timestamp, version) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (user_id, leaf_id, masked_pii_hash, real_data_hash, combined_hash, timestamp, version)
-                )
+    def save_merkle_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, combined_hash: str, timestamp: str, version: int, conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute(
+                """INSERT OR REPLACE INTO merkle_leaves 
+                   (user_id, leaf_id, masked_pii_hash, real_data_hash, combined_hash, timestamp, version) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, leaf_id, masked_pii_hash, real_data_hash, combined_hash, timestamp, version)
+            )
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
 
     def load_merkle_leaves(self) -> List[Dict[str, Any]]:
         with closing(self.get_connection()) as conn:
@@ -175,17 +211,22 @@ class M3Database:
             ]
 
     # --- Audit Events ---
-    def save_audit_event(self, entry: Dict[str, Any]):
-        with closing(self.get_connection()) as conn:
-            with conn:
-                conn.execute(
-                    """INSERT INTO audit_events 
-                       (event_id, timestamp, user_id, leaf_id, old_leaf_hash, new_leaf_hash, old_master_root, new_master_root, signature_hex, signer_fingerprint, previous_hash, event_hash)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (entry["event_id"], entry["timestamp"], entry["user_id"], entry["leaf_id"], entry.get("old_leaf_hash"),
-                     entry["new_leaf_hash"], entry["old_master_root"], entry["new_master_root"], entry["signature_hex"],
-                     entry["signer_fingerprint"], entry.get("previous_hash"), entry["event_hash"])
-                )
+    def save_audit_event(self, entry: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute(
+                """INSERT INTO audit_events 
+                   (event_id, timestamp, user_id, leaf_id, old_leaf_hash, new_leaf_hash, old_master_root, new_master_root, signature_hex, signer_fingerprint, previous_hash, event_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (entry["event_id"], entry["timestamp"], entry["user_id"], entry["leaf_id"], entry.get("old_leaf_hash"),
+                 entry["new_leaf_hash"], entry["old_master_root"], entry["new_master_root"], entry["signature_hex"],
+                 entry["signer_fingerprint"], entry.get("previous_hash"), entry["event_hash"])
+            )
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
 
     def load_audit_events(self) -> List[Dict[str, Any]]:
         with closing(self.get_connection()) as conn:
@@ -194,15 +235,20 @@ class M3Database:
             return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
     # --- Checkpoints ---
-    def save_checkpoint(self, checkpoint: Dict[str, Any]):
-        with closing(self.get_connection()) as conn:
-            with conn:
-                conn.execute(
-                    """INSERT INTO root_checkpoints (event_id, timestamp, master_root, user_id, previous_hash, checkpoint_hash)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (checkpoint["event_id"], checkpoint["timestamp"], checkpoint["master_root"], checkpoint["user_id"],
-                     checkpoint.get("previous_hash"), checkpoint["checkpoint_hash"])
-                )
+    def save_checkpoint(self, checkpoint: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute(
+                """INSERT INTO root_checkpoints (event_id, timestamp, master_root, user_id, previous_hash, checkpoint_hash)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (checkpoint["event_id"], checkpoint["timestamp"], checkpoint["master_root"], checkpoint["user_id"],
+                 checkpoint.get("previous_hash"), checkpoint["checkpoint_hash"])
+            )
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
 
     def load_checkpoints(self) -> List[Dict[str, Any]]:
         with closing(self.get_connection()) as conn:
@@ -236,11 +282,16 @@ class M3Database:
             }
 
     # --- M4 Payloads ---
-    def save_m4_payload(self, event_id: str, payload: Dict[str, Any]):
-        with closing(self.get_connection()) as conn:
-            with conn:
-                conn.execute("INSERT OR REPLACE INTO m4_payloads (event_id, payload_json) VALUES (?, ?)",
-                             (event_id, json.dumps(payload)))
+    def save_m4_payload(self, event_id: str, payload: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute("INSERT OR REPLACE INTO m4_payloads (event_id, payload_json) VALUES (?, ?)",
+                      (event_id, json.dumps(payload)))
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
 
     def load_m4_payload(self, event_id: str) -> Optional[Dict[str, Any]]:
         with closing(self.get_connection()) as conn:
@@ -266,12 +317,6 @@ class M3Database:
                 return row[0]
             return None
 
-    def revoke_identity(self, identity_id: str) -> bool:
-        with closing(self.get_connection()) as conn:
-            with conn:
-                cursor = conn.execute("UPDATE identity_keys SET is_revoked = 1 WHERE identity_id = ?", (identity_id,))
-                return cursor.rowcount > 0
-
     # --- AI Jobs ---
     def save_ai_job(self, job_id: str, status: str, facts: Dict[str, Any], created_at: str, conn: Optional[sqlite3.Connection] = None):
         def _execute(c):
@@ -292,9 +337,48 @@ class M3Database:
                 else:
                     conn.execute("UPDATE ai_jobs SET status = ? WHERE job_id = ?", (status, job_id))
 
+    def get_pending_ai_jobs(self) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute("SELECT job_id, facts_json, created_at FROM ai_jobs WHERE status = 'PENDING'")
+            return [
+                {
+                    "job_id": row[0],
+                    "facts": json.loads(row[1]),
+                    "created_at": row[2]
+                }
+                for row in cursor.fetchall()
+            ]
+
     # --- Admin Audit Logs ---
     def save_admin_audit_log(self, action: str, target: str, reason: str, timestamp: str):
         with closing(self.get_connection()) as conn:
             with conn:
                 conn.execute("INSERT INTO admin_audit_logs (action, target, reason, timestamp) VALUES (?, ?, ?, ?)",
                              (action, target, reason, timestamp))
+
+    # --- Replay Guard ---
+    def save_replay_guard(self, event_id: str, nonce: str, timestamp: str, user_id: str, leaf_id: str, version: Optional[int], conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            c.execute("INSERT OR REPLACE INTO replay_guard_events (event_id, timestamp) VALUES (?, ?)", (event_id, timestamp))
+            c.execute("INSERT OR REPLACE INTO replay_guard_nonces (nonce, timestamp) VALUES (?, ?)", (nonce, timestamp))
+            if version is not None:
+                c.execute("INSERT OR REPLACE INTO replay_guard_versions (user_id, leaf_id, version) VALUES (?, ?, ?)", (user_id, leaf_id, version))
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)
+
+    def delete_expired_replay_guard(self, expired_events: List[str], expired_nonces: List[str], conn: Optional[sqlite3.Connection] = None):
+        def _execute(c):
+            for eid in expired_events:
+                c.execute("DELETE FROM replay_guard_events WHERE event_id = ?", (eid,))
+            for n in expired_nonces:
+                c.execute("DELETE FROM replay_guard_nonces WHERE nonce = ?", (n,))
+        if conn:
+            _execute(conn)
+        else:
+            with closing(self.get_connection()) as c:
+                with c:
+                    _execute(c)

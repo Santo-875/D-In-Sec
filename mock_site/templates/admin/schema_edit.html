@@ -1,10 +1,10 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}Edit Field: {{ field.field_label }} — Admin{% endblock %}
+{% block title %}Edit Field: {{ field.field_label }} - Admin{% endblock %}
 {% block page_title %}Edit Field Schema{% endblock %}
 
 {% block content %}
 <div style="max-width:800px;margin:0 auto">
-    <div style="margin-bottom:24px"><a href="{{ url_for('admin.schema') }}" style="color:#818cf8;text-decoration:none;font-size:14px">← Back to Schema Builder</a></div>
+    <div style="margin-bottom:24px"><a href="{{ url_for('admin.schema') }}" style="color:#818cf8;text-decoration:none;font-size:14px"><- Back to Schema Builder</a></div>
     
     <div class="section-header"><div class="section-title">Edit Field: {{ field.field_label }}</div></div>
     
@@ -67,7 +67,7 @@
             <div style="border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:16px;background:rgba(245,158,11,0.04);margin-bottom:16px">
                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#f59e0b;font-weight:600;margin-bottom:4px">
                     <input type="checkbox" name="is_sensitive" id="is_sensitive" onchange="toggleSensitive(this.checked)" {% if field.pii_category %}checked{% endif %}>
-                    🔒 This field contains sensitive personal data (PII)
+                     This field contains sensitive personal data (PII)
                 </label>
                 <p style="font-size:11px;color:#64748b;margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
             </div>
@@ -81,9 +81,9 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom:16px">
-                    <label>Pick a Preset Format — or leave blank for custom</label>
+                    <label>Pick a Preset Format - or leave blank for custom</label>
                     <select name="preset_type" id="preset_type" onchange="updatePresetHint(this.value)">
-                        <option value="">— Select a common type —</option>
+                        <option value="">- Select a common type -</option>
                         <option value="aadhaar">Aadhaar (12 digits, e.g. 1234-5678-9012)</option>
                         <option value="pan">PAN Card (e.g. ABCDE1234F)</option>
                         <option value="phone">Indian Phone (10-digit mobile)</option>
@@ -101,7 +101,7 @@
                     <small id="preset-hint" style="color:#818cf8;font-size:11px;margin-top:6px;display:block"></small>
                 </div>
 
-                <!-- Custom regex — only shown if preset = custom -->
+                <!-- Custom regex - only shown if preset = custom -->
                 <div id="custom-regex-group" style="display:none" class="form-group">
                     <label>Custom Regex Pattern</label>
                     <input type="text" name="custom_regex" id="custom_regex" value="{{ field.regex_pattern or '' }}" placeholder="e.g. \b[A-Z]{2}\d{6}\b">

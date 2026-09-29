@@ -1,0 +1,6 @@
+flask
+pydantic
+requests
+spacy
+cryptography
+google-genai

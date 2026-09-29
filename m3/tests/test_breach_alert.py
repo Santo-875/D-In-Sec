@@ -100,7 +100,8 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
     SERVICE_HEADERS = {"X-API-Key": "dev-service-key"}
     VIEWER_HEADERS = {"X-API-Key": "dev-viewer-key"}
 
-    app = create_m3_app()
+    db_path = f"test_breach_{uuid.uuid4().hex[:8]}.db"
+    app = create_m3_app(db_path=db_path)
     client = app.test_client()
 
     # Step 1: Register identity and update leaf
@@ -122,15 +123,16 @@ def test_verify_leaf_api_tamper_detection_flow(monkeypatch, tmp_path):
         "leaf_id": "leaf_001",
         "masked_pii_hash": masked_pii_hash,
         "real_data_hash": real_data_hash,
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        "event_id": f"evt_{uuid.uuid4().hex[:12]}",
+        "nonce": uuid.uuid4().hex,
+        "version": 1
     }
     sig = sign_payload(priv_pem, payload)
 
     update_resp = client.post("/api/v1/tree/update", json={
         **payload,
-        "signature_hex": sig,
-        "event_id": f"evt_{uuid.uuid4().hex[:12]}",
-        "nonce": uuid.uuid4().hex
+        "signature_hex": sig
     }, headers=SERVICE_HEADERS)
     assert update_resp.status_code == 200
 

@@ -1,12 +1,12 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}DSAR Requests — Admin{% endblock %}
+{% block title %}DSAR Requests - Admin{% endblock %}
 {% block page_title %}DSAR Request Management{% endblock %}
 
 {% block content %}
 <div class="section-header">
     <div>
         <div class="section-title">Data Subject Access / Erasure Requests</div>
-        <div class="section-sub">DPDP Act compliance. ERASURE is a 2-step process — admin approves → user selects fields → admin confirms deletion.</div>
+        <div class="section-sub">DPDP Act compliance. ERASURE is a 2-step process - admin approves → user selects fields → admin confirms deletion.</div>
     </div>
 </div>
 
@@ -35,13 +35,13 @@
                 <td>
                     {% if req.status == 'completed' %}<span class="badge badge-green">Completed</span>
                     {% elif req.status == 'denied' %}<span class="badge badge-red">Denied</span>
-                    {% elif req.status == 'approved' %}<span class="badge badge-blue">Approved — Awaiting Field Selection</span>
-                    {% elif req.status == 'fields_selected' %}<span class="badge badge-amber">Fields Selected — Final Review</span>
+                    {% elif req.status == 'approved' %}<span class="badge badge-blue">Approved - Awaiting Field Selection</span>
+                    {% elif req.status == 'fields_selected' %}<span class="badge badge-amber">Fields Selected - Final Review</span>
                     {% elif req.status == 'expired' %}<span class="badge" style="background:#222;color:#64748b;border:1px solid #333">Expired (Session Ended)</span>
                     {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
                 </td>
                 <td style="font-size:12px;color:#64748b">{{ req.requested_at.strftime('%d %b %Y, %H:%M') }}</td>
-                <td style="font-size:12px;color:#94a3b8">{{ req.admin_note or '—' }}</td>
+                <td style="font-size:12px;color:#94a3b8">{{ req.admin_note or '-' }}</td>
                 <td>
 
                     {# ── STEP 1: pending → approve or deny ── #}
@@ -50,19 +50,19 @@
                     <div id="dsar-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:#0f1117;border-radius:8px;border:1px solid #2e3247">
                         {% if req.request_type == 'ERASURE' %}
                         <p style="font-size:12px;color:#f59e0b;margin-bottom:10px">
-                            ⚠ Approving this will send the user to select specific fields for erasure. A second admin confirmation is required before any data is deleted.
+                             Approving this will send the user to select specific fields for erasure. A second admin confirmation is required before any data is deleted.
                         </p>
                         {% else %}
                         <p style="font-size:12px;color:#818cf8;margin-bottom:10px">
-                            ℹ Approving this ACCESS request will make the user's data summary visible on their DSAR page.
+                             Approving this ACCESS request will make the user's data summary visible on their DSAR page.
                         </p>
                         {% endif %}
                         <form method="POST" action="{{ url_for('admin.dsar_resolve', req_id=req.id) }}">
                             <textarea name="admin_note" placeholder="Admin note (optional)..." rows="2"
                                 style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">✓ Approve</button>
-                                <button type="submit" name="action" value="deny" class="btn btn-sm btn-danger">✗ Deny</button>
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"> Approve</button>
+                                <button type="submit" name="action" value="deny" class="btn btn-sm btn-danger"> Deny</button>
                             </div>
                         </form>
                     </div>
@@ -82,19 +82,19 @@
                     </div>
                     <button class="btn btn-sm btn-danger" onclick="document.getElementById('final-{{ req.id }}').style.display='block'">Final Review</button>
                     <div id="final-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:#0f1117;border-radius:8px;border:1px solid rgba(239,68,68,0.3)">
-                        <p style="font-size:12px;color:#f87171;margin-bottom:10px">⚠ This is irreversible. The selected vault data will be permanently deleted.</p>
+                        <p style="font-size:12px;color:#f87171;margin-bottom:10px"> This is irreversible. The selected vault data will be permanently deleted.</p>
                         <form method="POST" action="{{ url_for('admin.dsar_final_confirm', req_id=req.id) }}">
                             <textarea name="admin_note" placeholder="Final note (optional)..." rows="2"
                                 style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="confirm" class="btn btn-sm btn-danger">🗑 Confirm Erasure</button>
+                                <button type="submit" name="action" value="confirm" class="btn btn-sm btn-danger"> Confirm Erasure</button>
                                 <button type="submit" name="action" value="deny" class="btn btn-sm btn-primary">Cancel</button>
                             </div>
                         </form>
                     </div>
 
                     {% elif req.status == 'approved' %}
-                    <span style="font-size:12px;color:#818cf8">⏳ Waiting for user to select fields…</span>
+                    <span style="font-size:12px;color:#818cf8"> Waiting for user to select fields…</span>
 
                     {% else %}
                     <span style="font-size:12px;color:#4b5563">Resolved</span>

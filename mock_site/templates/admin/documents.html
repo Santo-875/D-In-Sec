@@ -1,12 +1,12 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}Document Review — Admin{% endblock %}
+{% block title %}Document Review - Admin{% endblock %}
 {% block page_title %}Document Review Queue{% endblock %}
 
 {% block content %}
 <div class="section-header">
     <div>
         <div class="section-title">All Submitted Documents</div>
-        <div class="section-sub">Review and approve or reject uploaded documents. No raw file content is shown — files are encrypted in the vault.</div>
+        <div class="section-sub">Review and approve or reject uploaded documents. No raw file content is shown - files are encrypted in the vault.</div>
     </div>
 </div>
 
@@ -43,7 +43,7 @@
                         <span class="badge badge-amber">Pending</span>
                     {% endif %}
                 </td>
-                <td style="font-size:12px;color:#94a3b8">{{ doc.admin_note or '—' }}</td>
+                <td style="font-size:12px;color:#94a3b8">{{ doc.admin_note or '-' }}</td>
                 <td>
                     {% if doc.status == 'Pending' %}
                     <button class="btn btn-sm btn-success" onclick="document.getElementById('verify-{{ doc.id }}').style.display='block'">Review</button>
@@ -52,13 +52,13 @@
                             <textarea name="admin_note" placeholder="Optional note..." rows="2"
                                 style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">✓ Approve</button>
-                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">✗ Reject</button>
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"> Approve</button>
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger"> Reject</button>
                             </div>
                         </form>
                     </div>
                     {% else %}
-                    <span style="font-size:12px;color:#4b5563">—</span>
+                    <span style="font-size:12px;color:#4b5563">-</span>
                     {% endif %}
                 </td>
             </tr>

@@ -1,8 +1,13 @@
-import spacy
-nlp = spacy.load("en_core_web_md")
 PII_ENTITY_LABELS = {"PERSON", "GPE", "LOC", "ORG"}
 
+nlp = None
+
 def mask_named_entities(text: str) -> tuple[str, list[dict]]:
+    global nlp
+    if nlp is None:
+        import spacy
+        nlp = spacy.load("en_core_web_md")
+    
     doc = nlp(text)
     entities_to_mask = []
     for ent in doc.ents:

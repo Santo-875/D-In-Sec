@@ -1,21 +1,21 @@
 {% extends "admin/base_admin.html" %}
-{% block title %}Audit Logs — Admin{% endblock %}
+{% block title %}Audit Logs - Admin{% endblock %}
 {% block page_title %}Audit Log Viewer{% endblock %}
 
 {% block content %}
 <div class="section-header">
     <div>
-        <div class="section-title">system.log — Last 200 Entries</div>
-        <div class="section-sub">All events are structured — zero raw PII. Colour-coded by event type.</div>
+        <div class="section-title">system.log - Last 200 Entries</div>
+        <div class="section-sub">All events are structured - zero raw PII. Colour-coded by event type.</div>
     </div>
 </div>
 
 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-    <span style="font-size:12px;color:#818cf8">■ Vault events</span>
-    <span style="font-size:12px;color:#f87171">■ Failures / errors</span>
-    <span style="font-size:12px;color:#fbbf24">■ Warnings</span>
-    <span style="font-size:12px;color:#4ade80">■ Success events</span>
-    <span style="font-size:12px;color:#38bdf8">■ DSAR events</span>
+    <span style="font-size:12px;color:#818cf8">* Vault events</span>
+    <span style="font-size:12px;color:#f87171">* Failures / errors</span>
+    <span style="font-size:12px;color:#fbbf24">* Warnings</span>
+    <span style="font-size:12px;color:#4ade80">* Success events</span>
+    <span style="font-size:12px;color:#38bdf8">* DSAR events</span>
 </div>
 
 <div class="log-viewer">

@@ -120,6 +120,10 @@ class AppendOnlyAuditLog:
 
     def _load_from_db(self):
         """Loads existing audit events and checkpoints from the database."""
+        self._detailed_logs.clear()
+        self._event_index.clear()
+        self._permanent_root_chain.clear()
+        
         events = self.db.load_audit_events()
         for e in events:
             entry = AuditLogEntry(**e)

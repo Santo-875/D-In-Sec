@@ -28,19 +28,19 @@ def incident_detail(alert_id):
         try:
             r_m4 = requests.get(f"{M3_BASE_URL}/m4/payload/{incident.event_id}", headers=headers, timeout=3)
             if r_m4.status_code == 200:
-                m4_data = r_m4.json().get("payload", {})
+                m4_data = r_m4.json()
         except Exception:
             pass
             
         # 2. Trigger on-the-fly verification
         if m4_data:
             try:
-                proof = m4_data.get("update_proof", {})
+                tree_loc = m4_data.get("tree_update_location", {})
                 req_body = {
-                    "user_id": m4_data.get("audit_entry", {}).get("user_id"),
-                    "leaf_id": m4_data.get("audit_entry", {}).get("leaf_id"),
-                    "masked_pii_hash": proof.get("leaf", {}).get("masked_pii_hash"),
-                    "real_data_hash": proof.get("leaf", {}).get("real_data_hash")
+                    "user_id": tree_loc.get("target_user_subroot"),
+                    "leaf_id": tree_loc.get("target_leaf_id"),
+                    "masked_pii_hash": tree_loc.get("masked_pii_hash"),
+                    "real_data_hash": tree_loc.get("real_data_hash")
                 }
                 r_verify = requests.post(f"{M3_BASE_URL}/audit/verify", json=req_body, headers=headers, timeout=3)
                 verification = r_verify.json()

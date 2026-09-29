@@ -52,6 +52,10 @@ class ReplayGuard:
             self._load_from_db()
 
     def _load_from_db(self):
+        self._seen_event_ids.clear()
+        self._seen_nonces.clear()
+        self._leaf_versions.clear()
+        
         with self.db.get_connection() as conn:
             # Load events
             cur = conn.execute("SELECT event_id, timestamp FROM replay_guard_events")
@@ -81,7 +85,8 @@ class ReplayGuard:
         timestamp: str,
         user_id: str,
         leaf_id: str,
-        version: Optional[int] = None
+        version: Optional[int] = None,
+        conn: Optional[Any] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         Validates an incoming request against all replay protection checks.
@@ -135,12 +140,7 @@ class ReplayGuard:
                 self._leaf_versions[(user_id, leaf_id)] = version
                 
             if self.db:
-                with self.db.get_connection() as conn:
-                    with conn:
-                        conn.execute("INSERT OR REPLACE INTO replay_guard_events (event_id, timestamp) VALUES (?, ?)", (event_id, timestamp))
-                        conn.execute("INSERT OR REPLACE INTO replay_guard_nonces (nonce, timestamp) VALUES (?, ?)", (nonce, timestamp))
-                        if version is not None:
-                            conn.execute("INSERT OR REPLACE INTO replay_guard_versions (user_id, leaf_id, version) VALUES (?, ?, ?)", (user_id, leaf_id, version))
+                self.db.save_replay_guard(event_id, nonce, timestamp, user_id, leaf_id, version, conn=conn)
 
         return True, None
 
@@ -183,12 +183,7 @@ class ReplayGuard:
                 del self._seen_nonces[n]
                 
             if self.db and (expired_events or expired_nonces):
-                with self.db.get_connection() as conn:
-                    with conn:
-                        for eid in expired_events:
-                            conn.execute("DELETE FROM replay_guard_events WHERE event_id = ?", (eid,))
-                        for n in expired_nonces:
-                            conn.execute("DELETE FROM replay_guard_nonces WHERE nonce = ?", (n,))
+                self.db.delete_expired_replay_guard(expired_events, expired_nonces, conn=None)
 
         if expired_events or expired_nonces:
             logger.debug(
