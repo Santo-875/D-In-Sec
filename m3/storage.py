@@ -9,7 +9,7 @@ Env:
     STORAGE_BACKEND = local | s3   (default: local)
     S3_BUCKET       = <bucket name>
     AWS_REGION      = <region>
-    KMS_KEY_ID      = <kms key id or alias>
+    KMS_DATA_KEY_ID = <kms data encryption key id or alias>
     M3_ENV          = dev | prod   (default: dev)
 """
 
@@ -151,11 +151,11 @@ class S3Backend(StorageBackend):
     Never raises — returns None on failure (caller queues retry).
     """
 
-    def __init__(self, bucket: str, region: str, kms_key_id: str):
+    def __init__(self, bucket: str, region: str, kms_data_key_id: str = "", **kwargs):
         import boto3  # lazy import so non-S3 envs don't need boto3 installed
         self.bucket = bucket
         self.region = region
-        self.kms_key_id = kms_key_id
+        self.kms_data_key_id = kms_data_key_id or kwargs.get("kms_key_id", "")
         self._s3 = boto3.client("s3", region_name=region)
 
     def _put(self, key: str, payload: Dict[str, Any]) -> Optional[str]:
@@ -167,9 +167,11 @@ class S3Backend(StorageBackend):
                 "Body": body,
                 "ContentType": "application/json",
             }
-            if self.kms_key_id:
+            # Never send SSE params with the signing key (must use KMS_DATA_KEY_ID)
+            signing_key_id = os.environ.get("KMS_KEY_ID", "")
+            if self.kms_data_key_id and self.kms_data_key_id != signing_key_id:
                 kwargs["ServerSideEncryption"] = "aws:kms"
-                kwargs["SSEKMSKeyId"] = self.kms_key_id
+                kwargs["SSEKMSKeyId"] = self.kms_data_key_id
             self._s3.put_object(**kwargs)
             logger.debug("S3 PUT %s", key)
             return key
@@ -228,16 +230,16 @@ class S3Backend(StorageBackend):
 def get_storage_backend() -> StorageBackend:
     """
     Returns the configured StorageBackend.
-    Reads STORAGE_BACKEND, S3_BUCKET, AWS_REGION, KMS_KEY_ID from env.
+    Reads STORAGE_BACKEND, S3_BUCKET, AWS_REGION, KMS_DATA_KEY_ID from env.
     """
     backend_type = os.environ.get("STORAGE_BACKEND", "local").lower()
     if backend_type == "s3":
         bucket = os.environ.get("S3_BUCKET", "")
         region = os.environ.get("AWS_REGION", "ap-south-1")
-        kms_key_id = os.environ.get("KMS_KEY_ID", "")
+        kms_data_key_id = os.environ.get("KMS_DATA_KEY_ID", "")
         if not bucket:
             raise RuntimeError("STORAGE_BACKEND=s3 but S3_BUCKET is not set.")
-        return S3Backend(bucket=bucket, region=region, kms_key_id=kms_key_id)
+        return S3Backend(bucket=bucket, region=region, kms_data_key_id=kms_data_key_id)
     return LocalBackend(base_dir=os.environ.get("LOCAL_STORAGE_DIR", "local_storage"))
 
 

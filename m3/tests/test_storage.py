@@ -261,3 +261,45 @@ def test_s3_down_returns_unverified_and_queues(tmp_path):
     result = storage.anchor("tenant1", {"master_root": "ROOT1", "ts": "2025-01-01", "signature": "s"})
     assert result is None, "Should return None when S3 is down"
     assert db.count_pending_uploads() == 1, "Failed write must be queued"
+
+
+# ── Test 7: Split env: S3 SSE uses KMS_DATA_KEY_ID, never KMS_KEY_ID ───────
+
+@mock_aws
+def test_storage_uses_kms_data_key_id_and_never_signing_key(monkeypatch):
+    """
+    S3Backend must use KMS_DATA_KEY_ID for ServerSideEncryption,
+    and must never send SSE params when given KMS_KEY_ID (the signing key).
+    """
+    import boto3
+    s3 = boto3.client("s3", region_name=REGION)
+    _make_bucket(s3)
+
+    signing_key = "arn:aws:kms:ap-south-1:123456789012:key/sign-key-id"
+    data_key = "arn:aws:kms:ap-south-1:123456789012:key/data-key-id"
+    monkeypatch.setenv("KMS_KEY_ID", signing_key)
+    monkeypatch.setenv("KMS_DATA_KEY_ID", data_key)
+
+    # 1. With data_key set and different from signing_key
+    backend = S3Backend(bucket=BUCKET, region=REGION, kms_data_key_id=data_key)
+    assert backend.kms_data_key_id == data_key
+
+    captured_kwargs = {}
+    orig_put = backend._s3.put_object
+    def patched_put(**kwargs):
+        captured_kwargs.update(kwargs)
+        return orig_put(**kwargs)
+    backend._s3.put_object = patched_put
+
+    backend.put_log("tenant1", "u1", "2025-01-01T00:00:00", "hash1", {"data": "test"})
+    assert captured_kwargs.get("ServerSideEncryption") == "aws:kms"
+    assert captured_kwargs.get("SSEKMSKeyId") == data_key
+    assert captured_kwargs.get("SSEKMSKeyId") != signing_key
+
+    # 2. Never send SSE params with signing key if passed accidentally
+    captured_kwargs.clear()
+    backend_wrong = S3Backend(bucket=BUCKET, region=REGION, kms_data_key_id=signing_key)
+    backend_wrong._s3.put_object = patched_put
+    backend_wrong.put_log("tenant1", "u1", "2025-01-01T00:00:00", "hash2", {"data": "test"})
+    assert "ServerSideEncryption" not in captured_kwargs
+    assert "SSEKMSKeyId" not in captured_kwargs
