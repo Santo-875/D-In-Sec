@@ -577,7 +577,10 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                     record_breach_alert_to_db(alert)
                     db.update_ai_job_status(j_id, "COMPLETED", datetime.now(timezone.utc).isoformat())
                 except Exception as e:
-                    db.update_ai_job_status(j_id, f"FAILED: {str(e)}", datetime.now(timezone.utc).isoformat())
+                    try:
+                        db.update_ai_job_status(j_id, f"FAILED: {str(e)}", datetime.now(timezone.utc).isoformat())
+                    except Exception:
+                        pass
 
             thread = threading.Thread(
                 target=_background_alert,
