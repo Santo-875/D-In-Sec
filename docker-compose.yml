@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  m3-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dinsec-m3-sidecar
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - M3_STORAGE_BACKEND=local
+      - M3_SIGNER_BACKEND=local
+      - M3_API_KEYS=admin:dev-admin-key:ADMIN,service:dev-service-key:SERVICE,viewer:dev-viewer-key:VIEWER
+      - M3_DEBUG=0
+      - GEMINI_MODEL=gemini-2.5-flash
+    volumes:
+      - m3-data:/app/data
+      - m3-storage:/app/local_storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  m3-data:
+  m3-storage:

@@ -143,14 +143,57 @@ class M3Database:
                     )
                 ''')
                 
-                # AI Jobs
+                # AI Jobs (idempotent duplicate CREATE — table already created above)
+                # pending_uploads — write-through retry queue for S3 outages
                 cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS ai_jobs (
-                        job_id TEXT PRIMARY KEY,
-                        status TEXT NOT NULL,
-                        facts_json TEXT NOT NULL,
+                    CREATE TABLE IF NOT EXISTS pending_uploads (
+                        upload_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        op TEXT NOT NULL,
+                        meta_json TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        completed_at TEXT
+                        attempts INTEGER DEFAULT 0
+                    )
+                ''')
+                # review_queue — human labelling for ML retrain (Phase 2)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS review_queue (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_id TEXT NOT NULL,
+                        model_label TEXT,
+                        human_label TEXT,
+                        reviewer TEXT,
+                        ts TEXT,
+                        fn_flag INTEGER DEFAULT 0
+                    )
+                ''')
+                # model_registry — ML model versions (Phase 2)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS model_registry (
+                        version TEXT PRIMARY KEY,
+                        metrics_json TEXT,
+                        sha256 TEXT,
+                        promoted_at TEXT,
+                        is_active INTEGER DEFAULT 0
+                    )
+                ''')
+                # daily_summaries — CERT-In daily summaries (Phase 2)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS daily_summaries (
+                        date TEXT PRIMARY KEY,
+                        summary_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                ''')
+                # alerts — alert log for Phase 4
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        alert_id TEXT PRIMARY KEY,
+                        alert_type TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        details_json TEXT,
+                        ai_explanation TEXT,
+                        created_at TEXT NOT NULL,
+                        resolved INTEGER DEFAULT 0
                     )
                 ''')
             conn.commit()
@@ -382,3 +425,177 @@ class M3Database:
             with closing(self.get_connection()) as c:
                 with c:
                     _execute(c)
+
+    # --- Pending Uploads (S3 retry queue) ---
+    def enqueue_pending_upload(self, op: str, meta: Dict[str, Any]) -> int:
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                cursor = conn.execute(
+                    "INSERT INTO pending_uploads (op, meta_json, created_at, attempts) VALUES (?, ?, ?, 0)",
+                    (op, json.dumps(meta), created_at)
+                )
+                return cursor.lastrowid
+
+    def get_pending_uploads(self) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute(
+                "SELECT upload_id, op, meta_json, attempts FROM pending_uploads ORDER BY upload_id ASC"
+            )
+            return [
+                {"upload_id": r[0], "op": r[1], "meta_json": r[2], "attempts": r[3]}
+                for r in cursor.fetchall()
+            ]
+
+    def count_pending_uploads(self) -> int:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM pending_uploads")
+            return cursor.fetchone()[0]
+
+    def delete_pending_upload(self, upload_id: int) -> None:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("DELETE FROM pending_uploads WHERE upload_id = ?", (upload_id,))
+
+    def increment_pending_attempt(self, upload_id: int) -> None:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("UPDATE pending_uploads SET attempts = attempts + 1 WHERE upload_id = ?", (upload_id,))
+
+    # --- Review Queue (ML retrain labelling) ---
+    def enqueue_review(self, event_id: str, model_label: str) -> None:
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO review_queue (event_id, model_label, ts) VALUES (?, ?, ?)",
+                    (event_id, model_label, ts)
+                )
+
+    def get_review_queue(self, unlabelled_only: bool = False) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            if unlabelled_only:
+                cursor = conn.execute(
+                    "SELECT id, event_id, model_label, human_label, reviewer, ts, fn_flag FROM review_queue WHERE human_label IS NULL ORDER BY id ASC"
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT id, event_id, model_label, human_label, reviewer, ts, fn_flag FROM review_queue ORDER BY id ASC"
+                )
+            cols = ["id", "event_id", "model_label", "human_label", "reviewer", "ts", "fn_flag"]
+            return [dict(zip(cols, r)) for r in cursor.fetchall()]
+
+    def label_review_item(self, item_id: int, human_label: str, reviewer: str, fn_flag: bool = False) -> None:
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute(
+                    "UPDATE review_queue SET human_label=?, reviewer=?, ts=?, fn_flag=? WHERE id=?",
+                    (human_label, reviewer, ts, 1 if fn_flag else 0, item_id)
+                )
+
+    # --- Model Registry ---
+    def register_model(self, version: str, metrics: Dict[str, Any], sha256: str) -> None:
+        from datetime import datetime, timezone
+        promoted_at = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute("UPDATE model_registry SET is_active = 0")
+                conn.execute(
+                    "INSERT OR REPLACE INTO model_registry (version, metrics_json, sha256, promoted_at, is_active) VALUES (?, ?, ?, ?, 1)",
+                    (version, json.dumps(metrics), sha256, promoted_at)
+                )
+
+    def get_model_registry(self) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute(
+                "SELECT version, metrics_json, sha256, promoted_at, is_active FROM model_registry ORDER BY promoted_at DESC"
+            )
+            return [
+                {"version": r[0], "metrics": json.loads(r[1]) if r[1] else {}, "sha256": r[2], "promoted_at": r[3], "is_active": bool(r[4])}
+                for r in cursor.fetchall()
+            ]
+
+    def rollback_model(self, version: str) -> bool:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                cursor = conn.execute("SELECT version FROM model_registry WHERE version = ?", (version,))
+                if not cursor.fetchone():
+                    return False
+                conn.execute("UPDATE model_registry SET is_active = 0")
+                conn.execute("UPDATE model_registry SET is_active = 1 WHERE version = ?", (version,))
+                return True
+
+    # --- Daily Summaries ---
+    def save_daily_summary(self, date: str, summary: Dict[str, Any]) -> None:
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_summaries (date, summary_json, created_at) VALUES (?, ?, ?)",
+                    (date, json.dumps(summary), created_at)
+                )
+
+    def get_daily_summary(self, date: str) -> Optional[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            cursor = conn.execute("SELECT summary_json FROM daily_summaries WHERE date = ?", (date,))
+            row = cursor.fetchone()
+            return json.loads(row[0]) if row else None
+
+    def list_daily_summaries(self, from_date: str = None, to_date: str = None) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            if from_date and to_date:
+                cursor = conn.execute(
+                    "SELECT date, summary_json, created_at FROM daily_summaries WHERE date >= ? AND date <= ? ORDER BY date ASC",
+                    (from_date, to_date)
+                )
+            else:
+                cursor = conn.execute("SELECT date, summary_json, created_at FROM daily_summaries ORDER BY date ASC")
+            return [
+                {"date": r[0], "summary": json.loads(r[1]), "created_at": r[2]}
+                for r in cursor.fetchall()
+            ]
+
+    # --- Alerts ---
+    def save_alert(self, alert_id: str, alert_type: str, severity: str,
+                   details: Dict[str, Any], ai_explanation: str = None) -> None:
+        from datetime import datetime, timezone
+        created_at = datetime.now(timezone.utc).isoformat()
+        with closing(self.get_connection()) as conn:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO alerts (alert_id, alert_type, severity, details_json, ai_explanation, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (alert_id, alert_type, severity, json.dumps(details), ai_explanation, created_at)
+                )
+
+    def get_alerts(self, unresolved_only: bool = False) -> List[Dict[str, Any]]:
+        with closing(self.get_connection()) as conn:
+            if unresolved_only:
+                cursor = conn.execute(
+                    "SELECT alert_id, alert_type, severity, details_json, ai_explanation, created_at, resolved FROM alerts WHERE resolved = 0 ORDER BY created_at DESC"
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT alert_id, alert_type, severity, details_json, ai_explanation, created_at, resolved FROM alerts ORDER BY created_at DESC"
+                )
+            cols = ["alert_id", "alert_type", "severity", "details", "ai_explanation", "created_at", "resolved"]
+            result = []
+            for r in cursor.fetchall():
+                row = dict(zip(cols, r))
+                if row["details"] and isinstance(row["details"], str):
+                    try:
+                        row["details"] = json.loads(row["details"])
+                    except Exception:
+                        pass
+                result.append(row)
+            return result
+
+    def resolve_alert(self, alert_id: str) -> bool:
+        with closing(self.get_connection()) as conn:
+            with conn:
+                cursor = conn.execute("UPDATE alerts SET resolved = 1 WHERE alert_id = ?", (alert_id,))
+                return cursor.rowcount > 0

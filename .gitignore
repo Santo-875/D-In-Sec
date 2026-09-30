@@ -22,6 +22,8 @@ ENV/
 # ── Flask / Instance ─────────────────────────────────────
 mock_site/instance/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 
 # ── Uploads (user-submitted documents) ───────────────────
@@ -57,3 +59,17 @@ ehthumbs.db
 *.log
 *.bak
 *.tmp
+
+# ── Artifact / Build Zips ────────────────────────────────
+*.zip
+
+# ── External Anchor (local dev only) ────────────────────
+external_anchor.log
+
+# ── Terraform ────────────────────────────────────────────
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+terraform.tfvars

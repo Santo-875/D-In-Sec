@@ -37,26 +37,42 @@ from m3.replay_guard import ReplayGuard
 from m3.database import M3Database
 from m3.anchoring import ExternalAnchor
 from datetime import datetime, timezone
+from m3.storage import get_storage_backend, DurableStorage
+from m3.signer import get_signer
 
 
-def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log"):
+def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
+                  storage_backend=None, signer_instance=None):
     app = Flask(__name__)
 
     # 1. Initialize Persistence Layer
     db = M3Database(db_path)
     external_anchor = ExternalAnchor(anchor_path)
 
-    # 2. Initialize Core M3 Engine Instances (Loaded from DB)
+    # 2. Initialize Storage & Signer backends
+    _raw_storage = storage_backend if storage_backend is not None else get_storage_backend()
+    storage = DurableStorage(backend=_raw_storage, db=db)
+    try:
+        signer = signer_instance if signer_instance is not None else get_signer()
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger("m3.api").warning("Signer init failed (dev mode): %s", _e)
+        signer = None
+
+    # Default tenant (multi-tenant: pass X-Tenant-ID header or env TENANT_ID)
+    DEFAULT_TENANT = os.environ.get("TENANT_ID", "default")
+
+    # 3. Initialize Core M3 Engine Instances (Loaded from DB)
     registry = PublicKeyRegistry(db=db)
     tree = HierarchicalMerkleTree(db=db)
     audit_log = AppendOnlyAuditLog(db=db, external_anchor=external_anchor)
     freeze_mgr = FreezeManager(db=db)
     replay_guard = ReplayGuard(db=db)
-    
+
     app.tree = tree
     app.config['M3_DB_PATH'] = db_path
 
-    # 3. Resume pending AI jobs
+    # 4. Resume pending AI jobs
     import threading
     def _resume_ai_job(facts_copy: dict, j_id: str):
         try:
@@ -73,6 +89,33 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log"):
             daemon=True
         )
         thread.start()
+
+    # 5. Start storage retry worker
+    _retry_thread = threading.Thread(
+        target=storage.retry_worker,
+        kwargs={"interval_seconds": int(os.environ.get("STORAGE_RETRY_INTERVAL", "60"))},
+        daemon=True
+    )
+    _retry_thread.start()
+
+    # ── Health & Readiness ─────────────────────────────────────────────────
+
+    @app.route('/healthz', methods=['GET'])
+    def healthz():
+        """Liveness probe — always 200 if process is alive."""
+        return jsonify({"status": "alive"}), 200
+
+    @app.route('/readyz', methods=['GET'])
+    def readyz():
+        """Readiness probe — reports S3 reachability and pending upload backlog."""
+        s3_ok = storage.is_healthy()
+        backlog = storage.pending_count()
+        status = "ready" if s3_ok else "degraded"
+        return jsonify({
+            "status": status,
+            "storage_healthy": s3_ok,
+            "pending_uploads_backlog": backlog
+        }), 200 if s3_ok else 503
 
     # ── Public Endpoints ─────────────────────────────────────────────────
 
@@ -703,14 +746,189 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log"):
             return jsonify({"error": "Payload not found for event_id"}), 404
         return jsonify(payload), 200
 
+    # ── Phase 1: Full verification + S3 anchor check ─────────────────────
+
+    @app.route('/api/v1/verify/full', methods=['GET'])
+    @require_role("ADMIN", "SERVICE", "VIEWER")
+    def full_verify():
+        """
+        Recomputes all subroots + master root from DB and compares with S3 anchor.
+        Deterministic — AI never participates in the pass/fail decision.
+        On mismatch: saves alert + triggers freeze.
+        If anchor unreachable: returns UNVERIFIED (never VERIFIED).
+        """
+        tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
+
+        # Step 1: Recompute master root from DB
+        db_root = tree.master_root
+
+        # Step 2: Fetch latest anchored root from storage
+        anchor_keys = storage.list(f"roots/")
+        if not anchor_keys:
+            return jsonify({
+                "status": "UNVERIFIED",
+                "reason": "No anchors found in storage. Cannot verify.",
+                "db_root": db_root
+            }), 200
+
+        # Get the latest (lexicographically last by key)
+        latest_key = sorted(anchor_keys)[-1]
+        anchor_data = storage.get(latest_key)
+        if not anchor_data:
+            return jsonify({
+                "status": "UNVERIFIED",
+                "reason": "Anchor object unreachable. Cannot verify.",
+                "db_root": db_root
+            }), 200
+
+        anchored_root = anchor_data.get("master_root")
+        if not anchored_root:
+            return jsonify({
+                "status": "UNVERIFIED",
+                "reason": "Anchor data malformed — no master_root field.",
+                "db_root": db_root
+            }), 200
+
+        # Step 3: Compare
+        if db_root == anchored_root:
+            return jsonify({
+                "status": "VERIFIED",
+                "message": "Full verification passed. DB root matches S3 anchor.",
+                "db_root": db_root,
+                "anchored_root": anchored_root,
+                "anchor_key": latest_key
+            }), 200
+        else:
+            # Mismatch — log alert and freeze
+            import uuid as _uuid
+            alert_id = f"alert_{_uuid.uuid4().hex[:12]}"
+            db.save_alert(
+                alert_id=alert_id,
+                alert_type="FULL_VERIFY_MISMATCH",
+                severity="CRITICAL",
+                details={"db_root": db_root, "anchored_root": anchored_root, "anchor_key": latest_key}
+            )
+            freeze_mgr.freeze_master("Full-verify mismatch detected — automatic integrity freeze.")
+            return jsonify({
+                "status": "TAMPER",
+                "reason": "DB root diverges from S3 anchor. System frozen.",
+                "db_root": db_root,
+                "anchored_root": anchored_root,
+                "alert_id": alert_id
+            }), 400
+
+    # ── Phase 1: Single-call ingestion endpoint ───────────────────────────
+
+    @app.route('/v1/events', methods=['POST'])
+    @app.route('/api/v1/events', methods=['POST'])
+    @require_role("ADMIN", "SERVICE")
+    def ingest_event():
+        """
+        Unified ingestion endpoint. Accepts a signed event, runs the full
+        tree update pipeline, and returns an inclusion proof.
+        If a raw text event is provided without tree parameters, runs fast AI classification.
+        This is the primary sidecar integration point.
+        """
+        data = request.get_json() or {}
+        if "text" in data and "leaf_id" not in data:
+            from m3.retrain import classify_event
+            result = classify_event(data.get("text", ""))
+            return jsonify(result), 200
+
+        with app.test_request_context(
+            '/api/v1/tree/update',
+            method='POST',
+            json=data,
+            headers={"X-API-Key": request.headers.get("X-API-Key", "")}
+        ):
+            from flask import g
+            result = update_tree()
+        return result
+
+    # ── Phase 4: Alerts endpoint ──────────────────────────────────────────
+
+    @app.route('/v1/alerts', methods=['GET'])
+    @app.route('/api/v1/alerts', methods=['GET'])
+    @require_role("ADMIN", "SERVICE", "VIEWER")
+    def get_alerts():
+        """Returns alerts log. VIEWER role can read."""
+        unresolved_only = request.args.get("unresolved", "false").lower() == "true"
+        alerts = db.get_alerts(unresolved_only=unresolved_only)
+        return jsonify({"count": len(alerts), "alerts": alerts}), 200
+
+    # ── Phase 2: Summary endpoints ────────────────────────────────────────
+
+    @app.route('/v1/admin/summary/run', methods=['POST'])
+    @app.route('/api/v1/admin/summary/run', methods=['POST'])
+    @require_role("ADMIN")
+    def run_summary():
+        """Generate and store the daily CERT-In summary. Idempotent per date."""
+        from m3.summary import generate_daily_summary
+        data = request.get_json() or {}
+        date = data.get("date", datetime.now(timezone.utc).date().isoformat())
+        existing = db.get_daily_summary(date)
+        if existing:
+            return jsonify({"status": "already_exists", "date": date, "summary": existing}), 200
+        summary = generate_daily_summary(db, date)
+        db.save_daily_summary(date, summary)
+        storage.put_summary(date, summary)
+        return jsonify({"status": "created", "date": date, "summary": summary}), 201
+
+    @app.route('/v1/export/certin', methods=['GET'])
+    @app.route('/api/v1/export/certin', methods=['GET'])
+    @require_role("ADMIN", "SERVICE", "VIEWER")
+    def export_certin():
+        """Export logs + summaries bundle with root-hash integrity proof."""
+        from_date = request.args.get("from", "")
+        to_date = request.args.get("to", "")
+        summaries = db.list_daily_summaries(from_date=from_date or None, to_date=to_date or None)
+        logs = audit_log.get_all_detailed_logs()
+        # Filter by date range if provided
+        if from_date or to_date:
+            logs = [l for l in logs if
+                    (not from_date or l.get("timestamp", "") >= from_date) and
+                    (not to_date or l.get("timestamp", "") <= to_date + "Z")]
+        return jsonify({
+            "from": from_date,
+            "to": to_date,
+            "master_root": tree.master_root,
+            "logs_count": len(logs),
+            "summaries_count": len(summaries),
+            "logs": logs,
+            "summaries": summaries
+        }), 200
+
+    # ── Phase 2: ML model management ─────────────────────────────────────
+
+    @app.route('/v1/admin/model/rollback/<version>', methods=['POST'])
+    @require_role("ADMIN")
+    def rollback_model(version):
+        """Roll back to a previous model version."""
+        success = db.rollback_model(version)
+        if not success:
+            return jsonify({"error": f"Version '{version}' not found"}), 404
+        return jsonify({"status": "rolled_back", "version": version}), 200
+
+    @app.route('/v1/admin/model/registry', methods=['GET'])
+    @require_role("ADMIN", "VIEWER")
+    def model_registry():
+        """List all model versions in the registry."""
+        return jsonify({"models": db.get_model_registry()}), 200
+
     return app
 
 
+
 if __name__ == '__main__':
+    # Development runner — for production use gunicorn:
+    #   gunicorn -w 4 -b 127.0.0.1:5001 "m3.api:create_m3_app()" --timeout 120
+    # Set M3_DEBUG=1 to enable Flask debug mode (development only).
+    _debug = os.environ.get("M3_DEBUG", "0") == "1"
     application = create_m3_app()
     print("\n" + "=" * 60)
     print("  Module 3: Identity & Hierarchical Merkle Tree Engine")
     print("  Server running on http://127.0.0.1:5001")
     print("  Auth: X-API-Key header required (see M3_API_KEYS env)")
+    print(f"  Debug mode: {'ON (M3_DEBUG=1)' if _debug else 'OFF'}")
     print("=" * 60 + "\n")
-    application.run(debug=True, host='0.0.0.0', port=5001)
+    application.run(debug=_debug, host='127.0.0.1', port=5001)

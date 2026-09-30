@@ -1,14 +1,48 @@
 """
 Integration tests for Module 2 -> Module 3 wiring, key storage, and best-effort resilience.
+
+spaCy is imported lazily / mocked so this file passes even without the en_core_web_sm model.
 """
 
 import os
+import sys
 import sqlite3
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 import pytest
+
+# ── Lazy / mock spaCy so tests pass without the model installed ───────────────
+def _mock_spacy():
+    """Insert a minimal spacy stub into sys.modules if spaCy or its model is absent."""
+    try:
+        import spacy
+        spacy.load("en_core_web_sm")   # will raise OSError if model missing
+    except Exception:
+        # Build a lightweight stub that satisfies any import of spacy.load(...)
+        spacy_stub = types.ModuleType("spacy")
+
+        class _NLP:
+            def __call__(self, text):
+                class _Doc:
+                    ents = []
+                return _Doc()
+
+        def _load(*args, **kwargs):
+            return _NLP()
+
+        spacy_stub.load = _load
+        spacy_stub.blank = lambda lang: _NLP()
+        sys.modules.setdefault("spacy", spacy_stub)
+        # Also stub the model package so `import en_core_web_sm` won't blow up
+        model_stub = types.ModuleType("en_core_web_sm")
+        model_stub.load = _load
+        sys.modules.setdefault("en_core_web_sm", model_stub)
+
+_mock_spacy()
+# ─────────────────────────────────────────────────────────────────────────────
 
 from m3.crypto_signer import (
     generate_rsa_key_pair,
@@ -37,9 +71,10 @@ def rsa_keys():
 
 
 @pytest.fixture(scope="module")
-def m3_server():
-    """Spawns background M3 Flask server on port 5001."""
-    app = create_m3_app()
+def m3_server(tmp_path_factory):
+    """Spawns background M3 Flask server on port 5001 using a temp DB."""
+    db_path = str(tmp_path_factory.mktemp("wiring_db") / "test_wiring.db")
+    app = create_m3_app(db_path=db_path)
     server = threading.Thread(
         target=lambda: app.run(host="127.0.0.1", port=5001, debug=False, use_reloader=False),
         daemon=True
@@ -62,7 +97,7 @@ def test_key_storage_in_memory_only(rsa_keys, monkeypatch):
     derived_pub = get_public_key_from_private_pem(loaded_priv)
     assert derived_pub.strip() == pub_pem.strip()
 
-    # Test literal \n newline normalization
+    # Test literal \n newline normalisation
     escaped_pem = priv_pem.replace("\n", "\\n")
     monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", escaped_pem)
     normalized_priv = load_private_key_from_env("M3_SIGNING_PRIVATE_KEY")
@@ -139,7 +174,7 @@ def test_module2_to_module3_wiring_end_to_end(rsa_keys, m3_server, monkeypatch, 
     # Step 3: Send update to M3
     _send_update_to_m3(db_path, alert_id, classification, context_text)
 
-    # Step 3: Verify event_id is saved to database
+    # Step 4: Verify event_id is saved to database
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
     cursor.execute("SELECT id, incident_type, event_id FROM incident_alerts WHERE id = ?", (alert_id,))

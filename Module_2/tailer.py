@@ -121,7 +121,7 @@ def _update_incident_event_id(db_path: Path, alert_id: int, event_id: str):
         print(f"[ERROR] Failed to update IncidentAlert event_id: {e}")
 
 
-def _register_key_with_m3(public_key_pem: str, user_id: str = "m2_service"):
+def _register_key_with_m3(public_key_pem: str, user_id: str = "admin"):
     """
     Pre-registers Module 2's public key with M3 on startup.
     Requires M3_ADMIN_API_KEY for ADMIN-level access to /identity/register.
@@ -155,23 +155,26 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
             return False
 
         timestamp = datetime.now(timezone.utc).isoformat()
+        event_id = f"evt_{uuid.uuid4().hex[:12]}"
+        nonce = uuid.uuid4().hex + uuid.uuid4().hex
+        version = 1
+
         payload = {
             "user_id": user_id,
             "leaf_id": leaf_id,
+            "event_id": event_id,
+            "nonce": nonce,
+            "version": version,
             "masked_pii_hash": masked_pii_hash,
             "real_data_hash": real_data_hash,
             "timestamp": timestamp
         }
 
         signature_hex = sign_payload(private_key_pem, payload)
-        event_id = f"evt_{uuid.uuid4().hex[:12]}"
-        nonce = uuid.uuid4().hex
 
         request_body = {
             **payload,
-            "signature_hex": signature_hex,
-            "event_id": event_id,
-            "nonce": nonce
+            "signature_hex": signature_hex
         }
 
         service_key = os.environ.get("M3_SERVICE_API_KEY", "dev-service-key")
@@ -238,7 +241,7 @@ def _outbox_retry_worker(db_path: Path):
             pass
         time.sleep(10.0)
 
-def _send_update_to_m3(db_path: Path, alert_id: int, classification, context_text: str, user_id: str = "system_audit"):
+def _send_update_to_m3(db_path: Path, alert_id: int, classification, context_text: str, user_id: str = "admin"):
     """
     Writes an update request to the M2 Outbox and attempts immediate delivery.
     """
