@@ -303,3 +303,266 @@ def test_storage_uses_kms_data_key_id_and_never_signing_key(monkeypatch):
     backend_wrong.put_log("tenant1", "u1", "2025-01-01T00:00:00", "hash2", {"data": "test"})
     assert "ServerSideEncryption" not in captured_kwargs
     assert "SSEKMSKeyId" not in captured_kwargs
+
+
+# ── Phase 1 Moto Tests: API-level integration ─────────────────────────────────
+
+@mock_aws
+def test_api_put_log_and_anchor_called_after_commit(tmp_path, monkeypatch):
+    """
+    POST /tree/update or /v1/events commits to SQLite first, then calls put_log.
+    POST /v1/admin/anchor writes a signed checkpoint to S3 roots/ prefix.
+    """
+    import boto3
+    from m3.api import create_m3_app
+    from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+    from datetime import datetime, timezone
+
+    s3 = boto3.client("s3", region_name=REGION)
+    _make_bucket(s3)
+
+    db_path = str(tmp_path / "test_api_s3.db")
+    s3_backend = S3Backend(bucket=BUCKET, region=REGION)
+
+    priv_key, pub_key = generate_rsa_key_pair()
+    monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_key)
+    monkeypatch.setenv("M3_API_KEYS", json.dumps({"test-admin": "ADMIN", "test-svc": "SERVICE"}))
+
+    app = create_m3_app(db_path=db_path, storage_backend=s3_backend)
+    client = app.test_client()
+
+    # Pre-register identity
+    client.post('/api/v1/identity/register',
+                json={"identity_id": "user_s3", "public_key_pem": pub_key},
+                headers={"X-API-Key": "test-admin"})
+
+    # Send tree update
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": "user_s3",
+        "leaf_id": "leaf_s3_1",
+        "event_id": "evt_s3_001",
+        "nonce": "nonce_s3_random_12345",
+        "version": 1,
+        "masked_pii_hash": "a" * 64,
+        "real_data_hash": "b" * 64,
+        "timestamp": ts
+    }
+    payload["signature_hex"] = sign_payload(priv_key, payload)
+
+    res = client.post('/api/v1/tree/update', json=payload, headers={"X-API-Key": "test-svc"})
+    assert res.status_code == 200
+
+    # 1. Verify SQLite commit
+    db = M3Database(db_path)
+    leaves = db.load_merkle_leaves()
+    assert len(leaves) == 1
+    assert leaves[0]["leaf_id"] == "leaf_s3_1"
+
+    # 2. Verify put_log uploaded to S3
+    logs = s3_backend.list("logs/default/user_s3/")
+    assert len(logs) == 1
+    stored_log = s3_backend.get(logs[0])
+    assert stored_log is not None
+
+    # 3. Trigger anchor
+    res_anchor = client.post('/v1/admin/anchor', headers={"X-API-Key": "test-admin"})
+    assert res_anchor.status_code == 200
+    assert res_anchor.json["status"] == "anchored"
+
+    roots = s3_backend.list("roots/")
+    assert len(roots) >= 1
+    anchor_obj = s3_backend.get(roots[-1])
+    assert anchor_obj["master_root"] == app.tree.master_root
+    assert anchor_obj["signature"] != ""
+
+
+@mock_aws
+def test_s3_outage_queued_and_unverified(tmp_path, monkeypatch):
+    """
+    When S3 is unreachable, write operations still succeed (queued in pending_uploads),
+    and verification returns UNVERIFIED (never crashes or false-positive VERIFIED).
+    """
+    import boto3
+    from m3.api import create_m3_app
+    from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+    from datetime import datetime, timezone
+    from m3.storage import StorageBackend
+
+    db_path = str(tmp_path / "test_outage.db")
+
+    class DownS3Backend(StorageBackend):
+        def put_log(self, *args, **kwargs):
+            return None
+        def put_root(self, *args, **kwargs):
+            return None
+        def put_summary(self, *args, **kwargs):
+            return None
+        def put_model(self, *args, **kwargs):
+            return None
+        def get(self, *args, **kwargs):
+            return None
+        def list(self, *args, **kwargs):
+            return []
+        def anchor(self, *args, **kwargs):
+            return None
+        def is_healthy(self):
+            return False
+
+    priv_key, pub_key = generate_rsa_key_pair()
+    monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_key)
+    monkeypatch.setenv("M3_API_KEYS", json.dumps({"test-admin": "ADMIN", "test-svc": "SERVICE", "test-viewer": "VIEWER"}))
+
+    app = create_m3_app(db_path=db_path, storage_backend=DownS3Backend())
+    client = app.test_client()
+
+    client.post('/api/v1/identity/register',
+                json={"identity_id": "outage_user", "public_key_pem": pub_key},
+                headers={"X-API-Key": "test-admin"})
+
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": "outage_user",
+        "leaf_id": "leaf_outage_1",
+        "event_id": "evt_outage_001",
+        "nonce": "nonce_outage_random_9999",
+        "version": 1,
+        "masked_pii_hash": "c" * 64,
+        "real_data_hash": "d" * 64,
+        "timestamp": ts
+    }
+    payload["signature_hex"] = sign_payload(priv_key, payload)
+
+    # Write must succeed despite S3 outage
+    res = client.post('/api/v1/tree/update', json=payload, headers={"X-API-Key": "test-svc"})
+    assert res.status_code == 200
+
+    # Write queued in pending_uploads
+    db = M3Database(db_path)
+    assert db.count_pending_uploads() >= 1
+
+    # Verification must report UNVERIFIED
+    r_ver = client.get('/v1/verify/full', headers={"X-API-Key": "test-viewer"})
+    assert r_ver.status_code == 200
+    assert r_ver.json["status"] == "UNVERIFIED"
+
+
+@mock_aws
+def test_full_db_rewrite_detected_via_s3_anchor(tmp_path, monkeypatch):
+    """
+    Even if an attacker rewrites all DB rows to make it self-consistent,
+    the S3 anchor detects the tamper and triggers automatic freeze.
+    """
+    import boto3
+    from m3.api import create_m3_app
+    from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+    from datetime import datetime, timezone
+
+    s3 = boto3.client("s3", region_name=REGION)
+    _make_bucket(s3)
+
+    db_path = str(tmp_path / "test_rewrite.db")
+    s3_backend = S3Backend(bucket=BUCKET, region=REGION)
+
+    priv_key, pub_key = generate_rsa_key_pair()
+    monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_key)
+    monkeypatch.setenv("M3_API_KEYS", json.dumps({"test-admin": "ADMIN", "test-svc": "SERVICE", "test-viewer": "VIEWER"}))
+
+    app = create_m3_app(db_path=db_path, storage_backend=s3_backend)
+    client = app.test_client()
+
+    client.post('/api/v1/identity/register',
+                json={"identity_id": "rewritten_user", "public_key_pem": pub_key},
+                headers={"X-API-Key": "test-admin"})
+
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": "rewritten_user",
+        "leaf_id": "leaf_1",
+        "event_id": "evt_rewritten_001",
+        "nonce": "nonce_rewrite_random_1111",
+        "version": 1,
+        "masked_pii_hash": "1" * 64,
+        "real_data_hash": "2" * 64,
+        "timestamp": ts
+    }
+    payload["signature_hex"] = sign_payload(priv_key, payload)
+    client.post('/api/v1/tree/update', json=payload, headers={"X-API-Key": "test-svc"})
+
+    # Anchor the legitimate state
+    client.post('/v1/admin/anchor', headers={"X-API-Key": "test-admin"})
+
+    # Attacker rewrites the DB table with different data
+    db = M3Database(db_path)
+    with db.get_connection() as conn:
+        conn.execute("UPDATE merkle_leaves SET real_data_hash = ? WHERE user_id = ?", ("9" * 64, "rewritten_user"))
+        conn.commit()
+
+    # Reload tree from tampered DB
+    app.tree._load_from_db()
+
+    # Full verify detects TAMPER against S3 anchor
+    r_ver = client.get('/v1/verify/full', headers={"X-API-Key": "test-viewer"})
+    assert r_ver.status_code == 400
+    assert r_ver.json["status"] == "TAMPER"
+    assert "diverges from storage anchor" in r_ver.json["reason"]
+
+
+@mock_aws
+def test_forged_anchor_rejected_by_signature(tmp_path, monkeypatch):
+    """
+    If an anchor object in S3 has an invalid or forged signature,
+    verification rejects it with status TAMPER.
+    """
+    import boto3
+    from m3.api import create_m3_app
+    from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+    from datetime import datetime, timezone
+
+    s3 = boto3.client("s3", region_name=REGION)
+    _make_bucket(s3)
+
+    db_path = str(tmp_path / "test_forged.db")
+    s3_backend = S3Backend(bucket=BUCKET, region=REGION)
+
+    priv_key, pub_key = generate_rsa_key_pair()
+    monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_key)
+    monkeypatch.setenv("M3_API_KEYS", json.dumps({"test-admin": "ADMIN", "test-svc": "SERVICE", "test-viewer": "VIEWER"}))
+
+    app = create_m3_app(db_path=db_path, storage_backend=s3_backend)
+    client = app.test_client()
+
+    client.post('/api/v1/identity/register',
+                json={"identity_id": "forged_user", "public_key_pem": pub_key},
+                headers={"X-API-Key": "test-admin"})
+
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "user_id": "forged_user",
+        "leaf_id": "leaf_forged_1",
+        "event_id": "evt_forged_001",
+        "nonce": "nonce_forged_random_2222",
+        "version": 1,
+        "masked_pii_hash": "3" * 64,
+        "real_data_hash": "4" * 64,
+        "timestamp": ts
+    }
+    payload["signature_hex"] = sign_payload(priv_key, payload)
+    client.post('/api/v1/tree/update', json=payload, headers={"X-API-Key": "test-svc"})
+
+    # Anchor to S3
+    client.post('/v1/admin/anchor', headers={"X-API-Key": "test-admin"})
+
+    # Overwrite the anchor in S3 with a forged signature
+    roots = s3_backend.list("roots/")
+    assert len(roots) >= 1
+    anchor_key = roots[-1]
+    anchor_data = s3_backend.get(anchor_key)
+    anchor_data["signature"] = "deadbeef" * 8  # Forged signature
+    s3.put_object(Bucket=BUCKET, Key=anchor_key, Body=json.dumps(anchor_data).encode("utf-8"))
+
+    # Verify must reject the forged anchor
+    r_ver = client.get('/v1/verify/full', headers={"X-API-Key": "test-viewer"})
+    assert r_ver.status_code == 400
+    assert r_ver.json["status"] == "TAMPER"
+    assert "signature verification failed" in r_ver.json["reason"].lower()
