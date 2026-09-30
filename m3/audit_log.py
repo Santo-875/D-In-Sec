@@ -7,6 +7,7 @@ Maintains a permanent, tamper-evident record of all system events:
   - External Anchoring Export (WORM / RFC 3161 / Public Ledger).
 """
 
+import os
 import uuid
 import hashlib
 import json
@@ -195,7 +196,7 @@ class AppendOnlyAuditLog:
             self.db.save_audit_event(entry.to_dict(), conn=conn)
             self.db.save_checkpoint(checkpoint.to_dict(), conn=conn)
         
-        if self.external_anchor:
+        if self.external_anchor and os.environ.get("STORAGE_BACKEND", "local").lower() == "local":
             self.external_anchor.anchor_checkpoint(checkpoint.to_dict())
 
         return entry

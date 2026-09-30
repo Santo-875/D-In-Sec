@@ -20,6 +20,7 @@ import uuid
 import re
 import time
 import threading
+from typing import Dict, Any, Optional, List
 from flask import Flask, request, jsonify
 from m3.crypto_signer import (
     PublicKeyRegistry,
@@ -48,7 +49,8 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
 
     # 1. Initialize Persistence Layer
     db = M3Database(db_path)
-    external_anchor = ExternalAnchor(anchor_path)
+    storage_backend_name = os.environ.get("STORAGE_BACKEND", "local").lower()
+    external_anchor = ExternalAnchor(anchor_path) if storage_backend_name == "local" else None
 
     # 2. Initialize Storage & Signer backends
     _raw_storage = storage_backend if storage_backend is not None else get_storage_backend()
@@ -114,6 +116,77 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             import logging
             logging.getLogger("m3.api").warning("storage.anchor failed (queued): %s", exc)
             return {"checkpoint": checkpoint, "key": None}
+
+    def _verify_anchor_signature(anchor_dict: Dict[str, Any]) -> bool:
+        if not isinstance(anchor_dict, dict):
+            return False
+        sig = anchor_dict.get("signature")
+        if not sig:
+            return False
+        signable = {k: v for k, v in anchor_dict.items() if k != "signature"}
+
+        pub_key_pem = None
+        if signer is not None:
+            try:
+                pub_key_pem = signer.public_key_pem
+            except Exception:
+                pub_key_pem = None
+
+        if not pub_key_pem:
+            if os.environ.get("SIGNER_BACKEND") == "kms" and os.environ.get("KMS_KEY_ID"):
+                try:
+                    import boto3
+                    kms = boto3.client("kms", region_name=os.environ.get("AWS_REGION", "ap-south-1"))
+                    resp = kms.get_public_key(KeyId=os.environ.get("KMS_KEY_ID"))
+                    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_public_key
+                    pub = load_der_public_key(resp["PublicKey"])
+                    pub_key_pem = pub.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
+                except Exception:
+                    pass
+            elif os.environ.get("M3_SIGNING_PRIVATE_KEY"):
+                from m3.crypto_signer import get_public_key_from_private_pem, load_private_key_from_env
+                priv = load_private_key_from_env()
+                if priv:
+                    pub_key_pem = get_public_key_from_private_pem(priv)
+
+        if not pub_key_pem:
+            return False
+
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+        from cryptography.hazmat.backends import default_backend
+        from m3.crypto_signer import canonicalize_payload
+
+        try:
+            public_key = load_pem_public_key(pub_key_pem.encode('utf-8'), backend=default_backend())
+            sig_bytes = bytes.fromhex(sig)
+            data = canonicalize_payload(signable)
+            # Try RSASSA-PSS (KMS)
+            try:
+                public_key.verify(
+                    sig_bytes,
+                    data,
+                    padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.AUTO),
+                    hashes.SHA256()
+                )
+                return True
+            except Exception:
+                pass
+            # Try PKCS1v15 (LocalRSASigner)
+            try:
+                public_key.verify(
+                    sig_bytes,
+                    data,
+                    padding.PKCS1v15(),
+                    hashes.SHA256()
+                )
+                return True
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return False
 
     # 4. Resume pending AI jobs
     def _resume_ai_job(facts_copy: dict, j_id: str):
@@ -256,10 +329,10 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
         Verifies that the current Master Root mathematically matches the
         latest checkpoint written to the external anchor file.
         """
-        anchor_file = audit_log.external_anchor.anchor_file_path
-        if not os.path.exists(anchor_file):
+        if not audit_log.external_anchor or not os.path.exists(audit_log.external_anchor.anchor_file_path):
             return jsonify({"status": "FAILED", "reason": "No external anchor file found"}), 404
             
+        anchor_file = audit_log.external_anchor.anchor_file_path
         with open(anchor_file, 'r') as f:
             lines = [l.strip() for l in f.readlines() if l.strip()]
             
@@ -695,12 +768,13 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             "leaf_hash": leaf_hash
         }), 200
 
+    @app.route('/audit/verify', methods=['POST'])
     @app.route('/api/v1/audit/verify', methods=['POST'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def verify_audit_chain():
         """
         End-to-end Merkle proof verification.
-        Recalculates leaf hash, verifies proof to master root, and compares with anchor.
+        Recalculates leaf hash, verifies proof to master root, and compares with storage anchor.
         """
         data = request.get_json() or {}
         user_id = data.get("user_id")
@@ -752,38 +826,50 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                 "reason": "Merkle proof verification failed. Path has been tampered."
             }), 400
 
-        # Step 4: Compare with external anchor
-        anchor_file = audit_log.external_anchor.anchor_file_path
-        anchor_mismatch = False
-        latest_anchor = None
-        if os.path.exists(anchor_file):
-            with open(anchor_file, 'r') as f:
-                lines = [l.strip() for l in f.readlines() if l.strip()]
-            if lines:
-                try:
-                    latest_anchor_data = json.loads(lines[-1])
-                    if isinstance(latest_anchor_data, str):
-                        latest_anchor_data = json.loads(latest_anchor_data)
-                    latest_anchor = latest_anchor_data.get("master_root")
-                    if latest_anchor and latest_anchor != computed_master:
-                        anchor_mismatch = True
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                    
-        if anchor_mismatch:
+        # Step 4: Compare with latest anchor from storage (not local file)
+        anchor_keys = storage.list("roots/")
+        if not anchor_keys:
+            return jsonify({
+                "status": "UNVERIFIED",
+                "reason": "No anchors found in storage. Cannot verify.",
+                "leaf_hash": actual_hash,
+                "master_root": computed_master
+            }), 200
+
+        latest_key = sorted(anchor_keys)[-1]
+        anchor_data = storage.get(latest_key)
+        if not anchor_data or not anchor_data.get("master_root"):
+            return jsonify({
+                "status": "UNVERIFIED",
+                "reason": "Anchor object unreachable in storage. Cannot verify.",
+                "leaf_hash": actual_hash,
+                "master_root": computed_master
+            }), 200
+
+        latest_anchor = anchor_data.get("master_root")
+        if latest_anchor != computed_master:
             return jsonify({
                 "status": "FAILED",
-                "reason": "Master root perfectly matches DB but diverges from external anchor! Severe tampering detected.",
+                "reason": "Master root perfectly matches DB but diverges from storage anchor! Severe tampering detected.",
+                "expected_anchor": latest_anchor,
+                "actual_root": computed_master
+            }), 400
+
+        if not _verify_anchor_signature(anchor_data):
+            return jsonify({
+                "status": "FAILED",
+                "reason": "Anchor signature verification failed! Forged or invalid anchor signature.",
                 "expected_anchor": latest_anchor,
                 "actual_root": computed_master
             }), 400
 
         return jsonify({
             "status": "VERIFIED",
-            "message": "End-to-end Merkle verification succeeded, including external anchor match.",
+            "message": "End-to-end Merkle verification succeeded, including storage anchor match and signature verification.",
             "leaf_hash": actual_hash,
             "master_root": computed_master,
-            "anchored_root": latest_anchor
+            "anchored_root": latest_anchor,
+            "anchor_key": latest_key
         }), 200
 
     @app.route('/api/v1/audit/logs', methods=['GET'])
@@ -820,13 +906,15 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
 
     # ── Phase 1: Full verification + S3 anchor check ─────────────────────
 
+    @app.route('/v1/verify/full', methods=['GET'])
     @app.route('/api/v1/verify/full', methods=['GET'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def full_verify():
         """
-        Recomputes all subroots + master root from DB and compares with S3 anchor.
+        Recomputes all subroots + master root from DB and compares with storage anchor.
         Deterministic — AI never participates in the pass/fail decision.
-        On mismatch: saves alert + triggers freeze.
+        Anchor must match DB root AND anchor signature must verify.
+        On mismatch or forged signature: saves alert + triggers freeze.
         If anchor unreachable: returns UNVERIFIED (never VERIFIED).
         """
         tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
@@ -835,7 +923,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
         db_root = tree.master_root
 
         # Step 2: Fetch latest anchored root from storage
-        anchor_keys = storage.list(f"roots/")
+        anchor_keys = storage.list("roots/")
         if not anchor_keys:
             return jsonify({
                 "status": "UNVERIFIED",
@@ -846,34 +934,18 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
         # Get the latest (lexicographically last by key)
         latest_key = sorted(anchor_keys)[-1]
         anchor_data = storage.get(latest_key)
-        if not anchor_data:
+        if not anchor_data or not anchor_data.get("master_root"):
             return jsonify({
                 "status": "UNVERIFIED",
-                "reason": "Anchor object unreachable. Cannot verify.",
+                "reason": "Anchor object unreachable in storage. Cannot verify.",
                 "db_root": db_root
             }), 200
 
         anchored_root = anchor_data.get("master_root")
-        if not anchored_root:
-            return jsonify({
-                "status": "UNVERIFIED",
-                "reason": "Anchor data malformed — no master_root field.",
-                "db_root": db_root
-            }), 200
 
-        # Step 3: Compare
-        if db_root == anchored_root:
-            return jsonify({
-                "status": "VERIFIED",
-                "message": "Full verification passed. DB root matches S3 anchor.",
-                "db_root": db_root,
-                "anchored_root": anchored_root,
-                "anchor_key": latest_key
-            }), 200
-        else:
-            # Mismatch — log alert and freeze
-            import uuid as _uuid
-            alert_id = f"alert_{_uuid.uuid4().hex[:12]}"
+        # Step 3: Compare master root with anchor
+        if db_root != anchored_root:
+            alert_id = f"alert_{uuid.uuid4().hex[:12]}"
             db.save_alert(
                 alert_id=alert_id,
                 alert_type="FULL_VERIFY_MISMATCH",
@@ -883,11 +955,37 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             freeze_mgr.freeze_master("Full-verify mismatch detected — automatic integrity freeze.")
             return jsonify({
                 "status": "TAMPER",
-                "reason": "DB root diverges from S3 anchor. System frozen.",
+                "reason": "DB root diverges from storage anchor. System frozen.",
                 "db_root": db_root,
                 "anchored_root": anchored_root,
                 "alert_id": alert_id
             }), 400
+
+        # Step 4: Verify anchor signature
+        if not _verify_anchor_signature(anchor_data):
+            alert_id = f"alert_{uuid.uuid4().hex[:12]}"
+            db.save_alert(
+                alert_id=alert_id,
+                alert_type="FORGED_ANCHOR_SIGNATURE",
+                severity="CRITICAL",
+                details={"db_root": db_root, "anchored_root": anchored_root, "anchor_key": latest_key}
+            )
+            freeze_mgr.freeze_master("Forged anchor signature detected — automatic integrity freeze.")
+            return jsonify({
+                "status": "TAMPER",
+                "reason": "Anchor signature verification failed! Forged or invalid anchor signature.",
+                "db_root": db_root,
+                "anchored_root": anchored_root,
+                "alert_id": alert_id
+            }), 400
+
+        return jsonify({
+            "status": "VERIFIED",
+            "message": "Full verification passed. DB root matches storage anchor and signature is valid.",
+            "db_root": db_root,
+            "anchored_root": anchored_root,
+            "anchor_key": latest_key
+        }), 200
 
     # ── Phase 1: Single-call ingestion endpoint ───────────────────────────
 

@@ -60,10 +60,8 @@ class LocalRSASigner(Signer):
             from m3.crypto_signer import load_private_key_from_env
             private_key_pem = load_private_key_from_env()
         if not private_key_pem:
-            raise RuntimeError(
-                "LocalRSASigner: M3_SIGNING_PRIVATE_KEY not set. "
-                "Generate a key with /api/v1/identity/generate-keys and set the env var."
-            )
+            from m3.crypto_signer import generate_rsa_key_pair
+            private_key_pem, _ = generate_rsa_key_pair()
         self._private_key_pem = private_key_pem
         # Derive and cache public key
         from m3.crypto_signer import get_public_key_from_private_pem
