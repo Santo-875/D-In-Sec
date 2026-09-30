@@ -1,16 +1,286 @@
 {% extends 'base.html' %}
 
-{% block title %}SOC Dashboard - Incidents{% endblock %}
+{% block title %}SOC Security Operations Center{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
-    <div class="col-12">
-        <h2 class="border-bottom pb-2 text-danger">SOC Dashboard - Incident Alerts</h2>
+    <div class="col-12 d-flex justify-content-between align-items-center border-bottom pb-2">
+        <div>
+            <h2 class="text-danger mb-0">SOC Operations & Merkle Sidecar Integrity</h2>
+            <small class="text-muted">Real-time DPDP Compliance, S3 Anchoring, and Threat Operations</small>
+        </div>
+        <div>
+            <form action="{{ url_for('soc.run_full_verify') }}" method="POST" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm px-3">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    Run Full Verify
+                </button>
+            </form>
+            <form action="{{ url_for('soc.trigger_manual_anchor') }}" method="POST" style="display:inline; margin-left: 6px;">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Anchor Checkpoint</button>
+            </form>
+            <a href="{{ url_for('soc.export_certin') }}" class="btn btn-outline-primary btn-sm" style="margin-left: 6px;">Export CERT-In Bundle</a>
+        </div>
     </div>
 </div>
 
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="row mb-3">
+            <div class="col-12">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+{% endwith %}
+
+<!-- Top Row: Cloud Status & Verification Panels -->
+<div class="row mb-4">
+    <!-- Cloud Status Panel -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100 border-secondary shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span class="fw-bold">Cloud Infrastructure & Sidecar Status</span>
+                {% if cloud_status.storage_healthy %}
+                    <span class="badge bg-success">HEALTHY</span>
+                {% else %}
+                    <span class="badge bg-danger">{{ cloud_status.status }}</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-6">
+                        <small class="text-muted d-block">Storage Backend</small>
+                        <span class="badge bg-primary text-uppercase">{{ cloud_status.backend }}</span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block">Signer Backend</small>
+                        <span class="badge bg-info text-dark text-uppercase">{{ cloud_status.signer }}</span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block">S3 Bucket / Target</small>
+                        <code>{{ cloud_status.bucket or 'None' }}</code>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block">Pending Uploads Queue</small>
+                        {% if cloud_status.pending_uploads > 0 %}
+                            <span class="badge bg-warning text-dark">{{ cloud_status.pending_uploads }} queued</span>
+                        {% else %}
+                            <span class="badge bg-success">0 (clean)</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 mt-2">
+                        <small class="text-muted d-block">Current DB Master Root</small>
+                        <code class="small text-break">{{ cloud_status.master_root or 'Empty / Initializing' }}</code>
+                    </div>
+                    {% if cloud_status.last_anchor %}
+                    <div class="col-12 mt-1">
+                        <small class="text-muted d-block">Last Root Checkpoint</small>
+                        <code class="small text-break">{{ cloud_status.last_anchor.master_root }}</code>
+                        <small class="text-muted d-block mt-1">Timestamp: {{ cloud_status.last_anchor.timestamp }}</small>
+                    </div>
+                    {% endif %}
+                    {% if cloud_status.error %}
+                    <div class="col-12 mt-2 text-danger small">
+                        <strong>Warning:</strong> {{ cloud_status.error }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Verification Status Panel -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100 border-secondary shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span class="fw-bold">Merkle End-to-End Verification</span>
+                {% if verification %}
+                    {% if verification.status == 'VERIFIED' %}
+                        <span class="badge bg-success">VERIFIED</span>
+                    {% elif verification.status == 'TAMPER' %}
+                        <span class="badge bg-danger">TAMPER DETECTED</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">{{ verification.status }}</span>
+                    {% endif %}
+                {% else %}
+                    <span class="badge bg-secondary">IDLE</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if verification %}
+                    <div class="mb-2">
+                        <strong>Result:</strong> <span class="badge bg-{{ 'success' if verification.status == 'VERIFIED' else 'danger' if verification.status == 'TAMPER' else 'warning' }}">{{ verification.status }}</span>
+                        <small class="text-muted d-block">{{ verification.message }}</small>
+                    </div>
+                    <ul class="list-group list-group-flush small">
+                        {% for step in verification.steps %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-1">
+                                <div>
+                                    <span class="fw-bold">{{ step.name }}</span>
+                                    <div class="text-muted small">{{ step.detail }}</div>
+                                </div>
+                                <span class="badge bg-{{ 'success' if step.status == 'PASSED' else 'danger' if step.status == 'FAILED' else 'warning' if step.status == 'WARNING' else 'secondary' }}">
+                                    {{ step.status }}
+                                </span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted small">No verification run yet in this session. Click <strong>"Run Full Verify"</strong> to recompute in-memory Merkle tree roots, retrieve S3/storage anchors, and mathematically verify digital signatures.</p>
+                    <form action="{{ url_for('soc.run_full_verify') }}" method="POST">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Launch Verification</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Middle Row: Alerts & CERT-In Summary Panels -->
+<div class="row mb-4">
+    <!-- Active Alerts Panel -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span>Sidecar Security & Tamper Alerts</span>
+                <span class="badge bg-{{ 'danger' if alerts else 'success' }}">{{ alerts|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if alerts %}
+                    <div class="table-responsive" style="max-height: 250px;">
+                        <table class="table table-sm table-hover mb-0 small">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th>
+                                    <th>Type</th>
+                                    <th>Time</th>
+                                    <th>Resolved</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for a in alerts %}
+                                    <tr class="{{ 'table-danger' if a.severity == 'CRITICAL' else 'table-warning' if a.severity == 'HIGH' else '' }}">
+                                        <td><span class="badge bg-{{ 'danger' if a.severity == 'CRITICAL' else 'warning' }}">{{ a.severity }}</span></td>
+                                        <td><strong>{{ a.alert_type }}</strong></td>
+                                        <td>{{ a.created_at[:19] }}</td>
+                                        <td>{{ 'Yes' if a.resolved else 'No' }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="p-3 text-muted small">No active security or tamper alerts logged.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- CERT-In Summary & Export Panel -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span>CERT-In 180-Day Compliance & Summary</span>
+                <a href="{{ url_for('soc.export_certin') }}" class="btn btn-sm btn-outline-light py-0">Download Bundle</a>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <small class="text-muted d-block">Retained Detailed Logs</small>
+                        <h4 class="mb-0">{{ certin_bundle.logs_count or 0 }}</h4>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block">Daily Summaries Generated</small>
+                        <h4 class="mb-0">{{ certin_bundle.summaries_count or 0 }}</h4>
+                    </div>
+                </div>
+                {% if certin_bundle.summaries %}
+                    <div class="small mt-2">
+                        <strong>Latest Daily Summary:</strong>
+                        <div class="border rounded p-2 bg-light mt-1">
+                            <div><strong>Date:</strong> {{ certin_bundle.summaries[-1].date or 'Today' }}</div>
+                            <div><strong>Total Events:</strong> {{ certin_bundle.summaries[-1].total_events or 0 }}</div>
+                            <div><strong>Incidents:</strong> {{ certin_bundle.summaries[-1].incident_counts or {} }}</div>
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="text-muted small mt-2">No daily summary generated yet. The sidecar creates summaries automatically every 24h.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Model Registry & Rollback Panel -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <span>Fast ML Classifier Model Registry</span>
+                <small class="text-muted">Edge Anomaly Detection & Active Versions</small>
+            </div>
+            <div class="card-body p-0">
+                {% if models %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Version</th>
+                                    <th>Status</th>
+                                    <th>Accuracy</th>
+                                    <th>F1 Score</th>
+                                    <th>Created At</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for m in models %}
+                                    <tr class="{{ 'table-success' if m.is_active else '' }}">
+                                        <td><strong>{{ m.version }}</strong></td>
+                                        <td>
+                                            {% if m.is_active %}
+                                                <span class="badge bg-success">ACTIVE</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">CANDIDATE</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ "%.2f"|format(m.accuracy * 100) }}%</td>
+                                        <td>{{ "%.2f"|format(m.f1_score * 100) }}%</td>
+                                        <td>{{ m.created_at[:19] }}</td>
+                                        <td>
+                                            {% if not m.is_active %}
+                                                <form action="{{ url_for('soc.rollback_model', version=m.version) }}" method="POST" style="display:inline;">
+                                                    <button type="submit" class="btn btn-sm btn-outline-warning">Rollback to this</button>
+                                                </form>
+                                            {% else %}
+                                                <span class="text-muted small">In Production</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="p-3 text-muted small">Model registry has no alternate versions registered. Baseline active.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom Section: Incidents Table -->
 <div class="row">
     <div class="col-12">
+        <h4 class="border-bottom pb-2 text-danger">Incident Alerts Stream</h4>
         {% if incidents %}
             <div class="table-responsive">
                 <table class="table table-striped table-hover align-middle">
@@ -58,8 +328,8 @@
             </div>
         {% else %}
             <div class="alert alert-success">
-                <h4 class="alert-heading">No Incidents Detected</h4>
-                <p>The system is currently operating normally.</p>
+                <h5 class="alert-heading mb-0">No Incidents Detected</h5>
+                <small>The mock site is currently operating normally.</small>
             </div>
         {% endif %}
     </div>

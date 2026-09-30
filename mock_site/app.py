@@ -112,12 +112,14 @@ def setup_logging(app, base_dir):
     app.logger.addHandler(console_handler)
 
 
-# ── Entry Point ─────────────────────────────────────────────────
 if __name__ == '__main__':
     application = create_app()
+    _debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    _host = os.environ.get("FLASK_HOST", "127.0.0.1")
+    _port = int(os.environ.get("PORT", "5000"))
     print("\n" + "=" * 60)
     print("  D-In-Sec Mock Corporate Portal")
     print("  Module 1 — Document Verification System")
-    print("  Server running on http://127.0.0.1:5000")
+    print(f"  Server running on http://{_host}:{_port}")
     print("=" * 60 + "\n")
-    application.run(debug=True, host='0.0.0.0', port=5000)
+    application.run(debug=_debug, host=_host, port=_port)
