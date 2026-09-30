@@ -10,19 +10,49 @@ services:
     ports:
       - "5001:5001"
     environment:
-      - M3_STORAGE_BACKEND=local
-      - M3_SIGNER_BACKEND=local
-      - M3_API_KEYS=admin:dev-admin-key:ADMIN,service:dev-service-key:SERVICE,viewer:dev-viewer-key:VIEWER
-      - M3_DEBUG=0
-      - GEMINI_MODEL=gemini-2.5-flash
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      - SIGNER_BACKEND=${SIGNER_BACKEND:-local}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - KMS_KEY_ID=${KMS_KEY_ID:-}
+      - KMS_DATA_KEY_ID=${KMS_DATA_KEY_ID:-}
+      - M3_API_KEYS=${M3_API_KEYS:-{"dev-admin-key": "ADMIN", "dev-service-key": "SERVICE", "dev-viewer-key": "VIEWER"}}
+      - M3_DEBUG=${M3_DEBUG:-0}
+      - M3_ENV=${M3_ENV:-dev}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - AWS_PROFILE=${AWS_PROFILE:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
     volumes:
       - m3-data:/app/data
       - m3-storage:/app/local_storage
+      - ${HOME:-~}/.aws:/root/.aws:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  mock_site:
+    build:
+      context: .
+      dockerfile: mock_site/Dockerfile
+    container_name: dinsec-mock-site
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - M3_API_URL=http://m3-sidecar:5001/api/v1/tree/update
+      - M3_BASE_URL=http://m3-sidecar:5001
+      - M3_SERVICE_API_KEY=${M3_SERVICE_API_KEY:-dev-service-key}
+      - M3_ADMIN_API_KEY=${M3_ADMIN_API_KEY:-dev-admin-key}
+      - M3_VIEWER_API_KEY=${M3_VIEWER_API_KEY:-dev-viewer-key}
+    depends_on:
+      m3-sidecar:
+        condition: service_healthy
 
 volumes:
   m3-data:
