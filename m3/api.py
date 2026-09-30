@@ -19,6 +19,7 @@ import json
 import uuid
 import re
 import time
+import threading
 from flask import Flask, request, jsonify
 from m3.crypto_signer import (
     PublicKeyRegistry,
@@ -70,10 +71,51 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
     replay_guard = ReplayGuard(db=db)
 
     app.tree = tree
+    app.storage = storage
+    app.signer = signer
     app.config['M3_DB_PATH'] = db_path
 
+    ANCHOR_EVERY_N = int(os.environ.get("ANCHOR_EVERY_N", "10"))
+    ANCHOR_EVERY_SEC = int(os.environ.get("ANCHOR_EVERY_SEC", "300"))
+    app._write_count = 0
+    app._last_anchor_time = time.time()
+    app._anchor_lock = threading.Lock()
+
+    def _do_anchor(tenant_id=DEFAULT_TENANT):
+        leaf_count = sum(len(subroot.leaves) for subroot in tree.user_subroots.values())
+        ts = datetime.now(timezone.utc).isoformat()
+        master_root = tree.master_root
+        key_id = getattr(signer, "_key_id", getattr(signer, "fingerprint", "local")) if signer else "none"
+
+        checkpoint_data = {
+            "tenant": tenant_id,
+            "master_root": master_root,
+            "leaf_count": leaf_count,
+            "ts": ts,
+            "key_id": key_id
+        }
+
+        sig = ""
+        if signer:
+            try:
+                sig = signer.sign(checkpoint_data)
+            except Exception as exc:
+                import logging
+                logging.getLogger("m3.api").warning("Signer failed to sign anchor: %s", exc)
+                sig = ""
+
+        checkpoint = dict(checkpoint_data)
+        checkpoint["signature"] = sig
+
+        try:
+            anchor_key = storage.anchor(tenant_id, checkpoint)
+            return {"checkpoint": checkpoint, "key": anchor_key}
+        except Exception as exc:
+            import logging
+            logging.getLogger("m3.api").warning("storage.anchor failed (queued): %s", exc)
+            return {"checkpoint": checkpoint, "key": None}
+
     # 4. Resume pending AI jobs
-    import threading
     def _resume_ai_job(facts_copy: dict, j_id: str):
         try:
             alert = generate_breach_alert(facts_copy)
@@ -289,6 +331,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
 
     # ── SERVICE Endpoints (Module 2 pipeline) ────────────────────────────
 
+    @app.route('/tree/update', methods=['POST'])
     @app.route('/api/v1/tree/update', methods=['POST'])
     @require_role("ADMIN", "SERVICE")
     def update_tree():
@@ -449,6 +492,32 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             audit_log._load_from_db()
             replay_guard._load_from_db()
             return jsonify({"error": "Failed to update tree", "detail": str(e)}), 500
+
+        # AFTER SQLite commit: call storage.put_log & anchor if threshold met
+        tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
+        try:
+            storage.put_log(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                ts=timestamp,
+                leaf_hash=audit_entry.new_leaf_hash,
+                payload=m4_payload
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger("m3.api").warning("storage.put_log failed (queued): %s", exc)
+
+        should_anchor = False
+        with app._anchor_lock:
+            app._write_count += 1
+            now = time.time()
+            if (app._write_count >= ANCHOR_EVERY_N) or ((now - app._last_anchor_time) >= ANCHOR_EVERY_SEC):
+                should_anchor = True
+                app._write_count = 0
+                app._last_anchor_time = now
+
+        if should_anchor:
+            _do_anchor(tenant_id)
 
         return jsonify({
             "status": "SUCCESS",
@@ -842,11 +911,32 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             '/api/v1/tree/update',
             method='POST',
             json=data,
-            headers={"X-API-Key": request.headers.get("X-API-Key", "")}
+            headers={
+                "X-API-Key": request.headers.get("X-API-Key", ""),
+                "X-Tenant-ID": request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
+            }
         ):
             from flask import g
             result = update_tree()
         return result
+
+    # ── Phase 1: Admin anchor endpoint ───────────────────────────────────
+
+    @app.route('/v1/admin/anchor', methods=['POST'])
+    @app.route('/api/v1/admin/anchor', methods=['POST'])
+    @require_role("ADMIN")
+    def trigger_admin_anchor():
+        """Manually triggers a signed root checkpoint anchor to storage."""
+        tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
+        res = _do_anchor(tenant_id)
+        with app._anchor_lock:
+            app._write_count = 0
+            app._last_anchor_time = time.time()
+        return jsonify({
+            "status": "anchored" if res.get("key") else "queued",
+            "key": res.get("key"),
+            "checkpoint": res.get("checkpoint")
+        }), 200
 
     # ── Phase 4: Alerts endpoint ──────────────────────────────────────────
 

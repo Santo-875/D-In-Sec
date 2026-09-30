@@ -137,9 +137,10 @@ class LocalBackend(StorageBackend):
         return sorted(results)
 
     def anchor(self, tenant_id, checkpoint):
-        date = checkpoint.get("ts", datetime.now(timezone.utc).isoformat())[:10]
+        ts_val = checkpoint.get("ts", datetime.now(timezone.utc).isoformat())
+        safe_ts = ts_val.replace(":", "-")
         root_hash = checkpoint.get("master_root", "unknown")
-        return self.put_root(date, root_hash, checkpoint)
+        return self.put_root(safe_ts, root_hash, checkpoint)
 
 
 # ── S3 backend ──────────────────────────────────────────────────────────────
@@ -209,9 +210,10 @@ class S3Backend(StorageBackend):
             return []
 
     def anchor(self, tenant_id, checkpoint):
-        date = checkpoint.get("ts", datetime.now(timezone.utc).isoformat())[:10]
+        ts_val = checkpoint.get("ts", datetime.now(timezone.utc).isoformat())
+        safe_ts = ts_val.replace(":", "-")
         root_hash = checkpoint.get("master_root", "unknown")
-        return self.put_root(date, root_hash, checkpoint)
+        return self.put_root(safe_ts, root_hash, checkpoint)
 
     def is_healthy(self) -> bool:
         try:
@@ -273,7 +275,11 @@ class DurableStorage:
     # ── Delegating put methods that auto-queue on failure ──────────────────
 
     def put_log(self, tenant_id, user_id, ts, leaf_hash, payload):
-        key = self.backend.put_log(tenant_id, user_id, ts, leaf_hash, payload)
+        key = None
+        try:
+            key = self.backend.put_log(tenant_id, user_id, ts, leaf_hash, payload)
+        except Exception as exc:
+            logger.warning("backend.put_log failed: %s", exc)
         if key is None:
             self._queue_retry("put_log", {
                 "tenant_id": tenant_id, "user_id": user_id,
@@ -282,7 +288,11 @@ class DurableStorage:
         return key
 
     def put_root(self, date, root_hash, payload):
-        key = self.backend.put_root(date, root_hash, payload)
+        key = None
+        try:
+            key = self.backend.put_root(date, root_hash, payload)
+        except Exception as exc:
+            logger.warning("backend.put_root failed: %s", exc)
         if key is None:
             self._queue_retry("put_root", {
                 "date": date, "root_hash": root_hash, "payload": payload
@@ -290,19 +300,31 @@ class DurableStorage:
         return key
 
     def put_summary(self, date, payload):
-        key = self.backend.put_summary(date, payload)
+        key = None
+        try:
+            key = self.backend.put_summary(date, payload)
+        except Exception as exc:
+            logger.warning("backend.put_summary failed: %s", exc)
         if key is None:
             self._queue_retry("put_summary", {"date": date, "payload": payload})
         return key
 
     def put_model(self, version, payload):
-        key = self.backend.put_model(version, payload)
+        key = None
+        try:
+            key = self.backend.put_model(version, payload)
+        except Exception as exc:
+            logger.warning("backend.put_model failed: %s", exc)
         if key is None:
             self._queue_retry("put_model", {"version": version, "payload": payload})
         return key
 
     def anchor(self, tenant_id, checkpoint):
-        key = self.backend.anchor(tenant_id, checkpoint)
+        key = None
+        try:
+            key = self.backend.anchor(tenant_id, checkpoint)
+        except Exception as exc:
+            logger.warning("backend.anchor failed: %s", exc)
         if key is None:
             self._queue_retry("anchor", {
                 "tenant_id": tenant_id, "checkpoint": checkpoint
@@ -311,13 +333,22 @@ class DurableStorage:
 
     # Passthrough reads
     def get(self, key):
-        return self.backend.get(key)
+        try:
+            return self.backend.get(key)
+        except Exception:
+            return None
 
     def list(self, prefix):
-        return self.backend.list(prefix)
+        try:
+            return self.backend.list(prefix)
+        except Exception:
+            return []
 
     def is_healthy(self):
-        return self.backend.is_healthy()
+        try:
+            return self.backend.is_healthy()
+        except Exception:
+            return False
 
     def pending_count(self) -> int:
         try:

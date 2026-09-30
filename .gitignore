@@ -65,6 +65,7 @@ ehthumbs.db
 
 # ── External Anchor (local dev only) ────────────────────
 external_anchor.log
+local_storage/
 
 # ── Terraform ────────────────────────────────────────────
 .terraform/
