@@ -1,0 +1,193 @@
+openapi: 3.0.3
+info:
+  title: D-In-Sec Module 3 (M3) Sidecar API
+  description: >
+    Production-grade immutable audit sidecar for PII redaction, hierarchical Merkle tree
+    integrity verification, S3 WORM / Object Lock anchoring, and CERT-In 180-day compliance.
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:5001
+    description: Local Sidecar Instance
+paths:
+  /healthz:
+    get:
+      summary: Liveness Probe
+      description: Returns alive status.
+      responses:
+        '200':
+          description: Process is running
+
+  /readyz:
+    get:
+      summary: Readiness Probe
+      description: Returns S3 reachability and pending upload backlog count.
+      responses:
+        '200':
+          description: Sidecar storage backend is healthy
+        '503':
+          description: Storage backend degraded (writes queued)
+
+  /v1/events:
+    post:
+      summary: Unified Event Ingestion
+      description: Primary sidecar endpoint to ingest and prove signed events or raw text.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+                leaf_id:
+                  type: string
+                event_id:
+                  type: string
+                nonce:
+                  type: string
+                version:
+                  type: integer
+                masked_pii_hash:
+                  type: string
+                real_data_hash:
+                  type: string
+                timestamp:
+                  type: string
+                signature_hex:
+                  type: string
+                text:
+                  type: string
+      responses:
+        '200':
+          description: Event successfully verified and committed
+
+  /tree/update:
+    post:
+      summary: Merkle Tree Leaf Update
+      description: Recalculates hierarchical path and updates tree state.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Leaf updated and Master Root recomputed
+
+  /api/v1/tree/root:
+    get:
+      summary: Master Root State
+      description: Returns current Master Root and permanent root chain.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Current root state
+
+  /api/v1/tree/proof/{user_id}/{leaf_id}:
+    get:
+      summary: Merkle Inclusion Proof
+      description: Generates cryptographic inclusion proof for a leaf.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: leaf_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Inclusion proof
+
+  /audit/verify:
+    post:
+      summary: End-to-End Audit Chain Verification
+      description: Recalculates leaf hash, verifies proof, and validates storage anchor with signature.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: State is VERIFIED or UNVERIFIED
+        '400':
+          description: TAMPER detected
+
+  /v1/verify/full:
+    get:
+      summary: Full System Merkle Verification
+      description: Mathematically compares DB root against latest S3 anchor and verifies anchor signature.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: VERIFIED or UNVERIFIED
+        '400':
+          description: TAMPER detected (system frozen)
+
+  /v1/admin/anchor:
+    post:
+      summary: Trigger Root Anchor
+      description: Writes a signed checkpoint to S3 roots/ prefix immediately.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Root checkpoint anchored or queued
+
+  /v1/alerts:
+    get:
+      summary: Security Alerts Stream
+      description: Returns active or historical tamper and system alerts.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of alerts
+
+  /v1/export/certin:
+    get:
+      summary: Export CERT-In Bundle
+      description: Exports 180-day audit logs and summaries with root hash integrity proof.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: CERT-In export bundle
+
+  /v1/admin/model/registry:
+    get:
+      summary: ML Model Registry
+      description: Lists registered fast classifier models and candidate versions.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Model registry list
+
+  /v1/admin/model/rollback/{version}:
+    post:
+      summary: Rollback ML Model
+      description: Activates a previous model version in the registry.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model rolled back
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
