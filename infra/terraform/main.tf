@@ -187,8 +187,10 @@ resource "aws_iam_user" "sidecar" {
   tags = local.tags
 }
 
+# IAM access key is optional (default off). Recommended: use an AWS profile or IAM role.
 resource "aws_iam_access_key" "sidecar" {
-  user = aws_iam_user.sidecar.name
+  count = var.create_iam_access_key ? 1 : 0
+  user  = aws_iam_user.sidecar.name
 }
 
 resource "aws_iam_user_policy" "sidecar" {
