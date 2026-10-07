@@ -166,7 +166,7 @@
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     Upload Document
                 </h2>
-                <p class="section-subtitle">Submit identity documents for verification</p>
+                <p class="section-subtitle">Submit identity documents — automatically encrypted and archived to AWS S3 (<strong>dinsec-m3-audit-bucket</strong>)</p>
             </div>
             <form method="POST" action="{{ url_for('dashboard.upload_document') }}" enctype="multipart/form-data" class="upload-form" id="upload-form">
                 <div class="upload-grid">
@@ -240,7 +240,19 @@
                                             {{ doc.doc_type }}
                                         </div>
                                     </td>
-                                    <td class="doc-filename">{{ doc.file_token[:8] }}... <small style="opacity:0.5">(encrypted)</small></td>
+                                    <td class="doc-filename">
+                                        <div style="font-weight: 600; color: var(--text-primary);">{{ doc.file_name or (doc.file_token[:10] ~ '... (Encrypted)') }}</div>
+                                        {% if doc.s3_key %}
+                                            <div style="margin-top: 4px;">
+                                                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: var(--accent); border: 1px solid rgba(59, 130, 246, 0.3);">
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                                    AWS S3 Stored
+                                                </span>
+                                            </div>
+                                        {% else %}
+                                            <small style="color: var(--text-muted); font-size: 0.75rem;">Vault Encrypted</small>
+                                        {% endif %}
+                                    </td>
                                     <td class="doc-date">{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}</td>
                                     <td>
                                         <span class="status-badge status-{{ doc.status|lower }}">

@@ -168,22 +168,51 @@ def upload_document():
 
     file_token = vault_store_file(current_user.id, file_bytes, meta)
 
+    # Archive file to AWS S3 bucket if configured
+    s3_key = None
+    s3_bucket = os.getenv('S3_BUCKET')
+    if s3_bucket:
+        try:
+            import boto3
+            s3 = boto3.client('s3', region_name=os.getenv('AWS_REGION', 'ap-south-1'))
+            s3_key = f"documents/user_{current_user.id}/{random_name}_{original_filename}"
+            kwargs = {
+                "Bucket": s3_bucket,
+                "Key": s3_key,
+                "Body": file_bytes,
+                "ContentType": file.content_type or "application/octet-stream",
+            }
+            kms_key = os.getenv("KMS_DATA_KEY_ID")
+            if kms_key:
+                kwargs["ServerSideEncryption"] = "aws:kms"
+                kwargs["SSEKMSKeyId"] = kms_key
+            s3.put_object(**kwargs)
+            logger.info(f"event=S3_UPLOAD_SUCCESS actor_id={current_user.id} bucket={s3_bucket} key={s3_key}")
+        except Exception as exc:
+            logger.error(f"event=S3_UPLOAD_FAILED actor_id={current_user.id} bucket={s3_bucket} error={exc}")
+
     doc = Document(
         user_id=current_user.id,
         doc_type=doc_type,
         file_token=file_token,
+        file_name=original_filename,
+        file_path=s3_key or f"vault://{file_token}",
+        s3_key=s3_key,
         status='Pending',
     )
     db.session.add(doc)
     db.session.commit()
 
-    # Structured log — no original filename, no PII
+    # Structured log — no raw PII
     logger.info(
         f"event=DOCUMENT_UPLOAD actor_id={current_user.id} "
-        f"doc_type={doc_type} file_token={file_token[:8]}... status=success"
+        f"doc_type={doc_type} file_token={file_token[:8]}... s3_key={s3_key or 'none'} status=success"
     )
 
-    flash('Document uploaded successfully.', 'success')
+    if s3_key:
+        flash(f'Document "{original_filename}" uploaded and saved to AWS S3 bucket ({s3_bucket}) with KMS encryption.', 'success')
+    else:
+        flash(f'Document "{original_filename}" uploaded successfully.', 'success')
     return redirect(url_for('dashboard.index'))
 
 

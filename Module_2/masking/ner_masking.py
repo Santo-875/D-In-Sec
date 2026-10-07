@@ -6,7 +6,7 @@ def mask_named_entities(text: str) -> tuple[str, list[dict]]:
     global nlp
     if nlp is None:
         import spacy
-        nlp = spacy.load("en_core_web_md")
+        nlp = spacy.load("en_core_web_sm")
     
     doc = nlp(text)
     entities_to_mask = []

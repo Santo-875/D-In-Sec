@@ -127,7 +127,7 @@ def _register_key_with_m3(public_key_pem: str, user_id: str = "admin"):
     Requires M3_ADMIN_API_KEY for ADMIN-level access to /identity/register.
     Best-effort: logs warning if M3 is unreachable.
     """
-    admin_key = os.environ.get("M3_ADMIN_API_KEY", "dev-admin-key")
+    admin_key = os.environ.get("M3_ADMIN_API_KEY", "admin-key-change-me")
     m3_base = os.environ.get("M3_API_URL", "http://127.0.0.1:5001/api/v1/tree/update")
     register_url = m3_base.rsplit("/tree/update", 1)[0] + "/identity/register"
 
@@ -140,7 +140,7 @@ def _register_key_with_m3(public_key_pem: str, user_id: str = "admin"):
         )
         if resp.status_code == 200:
             data = resp.json()
-            print(f"[M3-AUTH] Registered public key with M3. fingerprint={data.get('fingerprint', 'N/A')[:16]}...")
+            print(f"[M3-AUTH] Registered public key with M3 for {user_id}. fingerprint={data.get('fingerprint', 'N/A')[:16]}...")
         else:
             print(f"[WARN] M3 key registration returned HTTP {resp.status_code}: {resp.text[:100]}")
     except Exception as e:
@@ -153,6 +153,10 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
         private_key_pem = load_private_key_from_env("M3_SIGNING_PRIVATE_KEY")
         if not private_key_pem:
             return False
+
+        # Ensure user identity is registered in M3
+        pub_pem = get_public_key_from_private_pem(private_key_pem)
+        _register_key_with_m3(pub_pem, user_id)
 
         timestamp = datetime.now(timezone.utc).isoformat()
         event_id = f"evt_{uuid.uuid4().hex[:12]}"
@@ -177,7 +181,8 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
             "signature_hex": signature_hex
         }
 
-        service_key = os.environ.get("M3_SERVICE_API_KEY", "dev-service-key")
+        service_key = os.environ.get("M3_SERVICE_API_KEY", "m2-service-key-change-me")
+
         headers = {"X-API-Key": service_key}
         m3_url = os.environ.get("M3_API_URL", "http://127.0.0.1:5001/api/v1/tree/update")
         

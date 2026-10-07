@@ -11,10 +11,13 @@ import json
 import time
 
 M3_API_URL = "http://127.0.0.1:5001/api/v1"
-ADMIN_KEY = os.environ.get("M3_ADMIN_API_KEY", "dev-admin-key")
+ADMIN_KEY = os.environ.get("M3_ADMIN_API_KEY", "admin-key-change-me")
 
-# Database path (assuming the script runs from the project root)
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "m3", "m3.db")
+# Database path (assuming the script runs from the project root or demonstrations folder)
+DB_PATH = os.path.join(os.path.dirname(__file__), "..", "m3.db")
+if not os.path.exists(DB_PATH):
+    DB_PATH = os.path.join(os.path.dirname(__file__), "..", "m3", "m3.db")
+
 
 def run_demo():
     print("="*60)

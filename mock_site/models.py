@@ -64,6 +64,9 @@ class Document(db.Model):
     user_id      = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     doc_type     = db.Column(db.String(50), nullable=False)
     file_token   = db.Column(db.String(64), nullable=False)
+    file_name    = db.Column(db.String(255), nullable=True, default='')
+    file_path    = db.Column(db.String(500), nullable=True, default='')
+    s3_key       = db.Column(db.String(500), nullable=True, default='')
     status       = db.Column(db.String(20), default='Pending')   # Pending/Verified/Rejected
     admin_note   = db.Column(db.Text, nullable=True)
     submitted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))

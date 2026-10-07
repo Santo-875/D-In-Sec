@@ -21,15 +21,18 @@ def run_demo():
     password = "password123"
     print(f"[*] Attacker registering account: {username}")
     
-    res = session.post(f"{PORTAL_URL}/auth/signup", data={
+    session.post(f"{PORTAL_URL}/auth/signup", data={
         "username": username,
         "email": f"{username}@example.com",
-        "password": password
+        "password": password,
+        "confirm_password": password
     })
     
-    if res.status_code != 200:
-        print("[!] Failed to connect to Mock Portal. Is it running on port 5000?")
-        return
+    # Log in
+    session.post(f"{PORTAL_URL}/auth/login", data={
+        "username": username,
+        "password": password
+    })
 
     # 2. Attacker attempts to update profile with a SQL injection payload
     print("[*] Attacker injecting SQL payload into 'full_name' field: ' OR 1=1 --")

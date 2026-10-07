@@ -15,6 +15,19 @@ Runs independently on port 5001.
 """
 
 import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+# Load .env
+env_file = BASE_DIR / ".env"
+if env_file.exists():
+    load_dotenv(dotenv_path=env_file)
+
 import json
 import uuid
 import re

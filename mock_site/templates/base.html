@@ -8,7 +8,48 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2.0">
+    <script>
+        function getPreferredTheme() {
+            var saved = localStorage.getItem('theme');
+            if (saved) return saved;
+            return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+        function updateThemeUI(theme) {
+            var isDark = theme === 'dark';
+            if (isDark) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+                document.documentElement.setAttribute('data-bs-theme', 'light');
+            }
+            var btns = document.querySelectorAll('#theme-toggle, .theme-toggle-btn');
+            btns.forEach(function(btn) {
+                if (isDark) {
+                    btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sun-icon"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
+                    btn.title = "Switch to Light Mode";
+                    btn.setAttribute('aria-label', "Switch to Light Mode");
+                } else {
+                    btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="moon-icon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+                    btn.title = "Switch to Dark Mode";
+                    btn.setAttribute('aria-label', "Switch to Dark Mode");
+                }
+            });
+        }
+        window.toggleSiteTheme = function() {
+            var current = document.documentElement.getAttribute('data-theme') || 'light';
+            var next = (current === 'dark') ? 'light' : 'dark';
+            localStorage.setItem('theme', next);
+            updateThemeUI(next);
+        };
+        // Apply immediately to prevent flicker
+        updateThemeUI(getPreferredTheme());
+        document.addEventListener('DOMContentLoaded', function() {
+            updateThemeUI(getPreferredTheme());
+        });
+    </script>
+    {% block head %}{% endblock %}
 </head>
 <body>
     <!-- Navigation Bar -->
@@ -30,7 +71,7 @@
             <span class="brand-badge">Portal</span>
         </div>
         <div class="nav-links">
-            <button id="theme-toggle" class="nav-btn nav-btn-ghost theme-btn" aria-label="Toggle Dark Mode" style="padding: 0.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%;">
+            <button id="theme-toggle" type="button" onclick="toggleSiteTheme()" class="nav-btn nav-btn-ghost theme-btn" aria-label="Toggle Dark Mode" title="Toggle Dark/Light Mode" style="padding: 0.5rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="moon-icon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             </button>
             {% if current_user.is_authenticated %}
@@ -104,7 +145,7 @@
         </div>
     </footer>
 
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=2.0"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -16,12 +16,12 @@ services:
       - AWS_REGION=${AWS_REGION:-ap-south-1}
       - KMS_KEY_ID=${KMS_KEY_ID:-}
       - KMS_DATA_KEY_ID=${KMS_DATA_KEY_ID:-}
-      - M3_API_KEYS=${M3_API_KEYS:-{"dev-admin-key": "ADMIN", "dev-service-key": "SERVICE", "dev-viewer-key": "VIEWER"}}
+      - M3_API_KEYS=${M3_API_KEYS}
       - M3_DEBUG=${M3_DEBUG:-0}
       - M3_ENV=${M3_ENV:-dev}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      - AWS_PROFILE=${AWS_PROFILE:-}
+      - AWS_PROFILE=${AWS_PROFILE}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
