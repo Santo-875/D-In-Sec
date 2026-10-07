@@ -23,10 +23,8 @@ import json
 import logging
 import os
 import pickle
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("m3.retrain")
 
@@ -45,7 +43,7 @@ def _sha256_of_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _serialise_model(pipeline) -> Tuple[bytes, str]:
+def _serialise_model(pipeline) -> tuple[bytes, str]:
     """Pickle a sklearn Pipeline and return (bytes, sha256)."""
     raw = pickle.dumps(pipeline)
     return raw, _sha256_of_bytes(raw)
@@ -59,9 +57,9 @@ def _load_model_bytes(raw: bytes):
 
 def _build_pipeline():
     """Build a fresh sklearn TF-IDF + LogReg pipeline."""
-    from sklearn.pipeline import Pipeline
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
 
     return Pipeline([
         ("tfidf", TfidfVectorizer(max_features=5000, ngram_range=(1, 2))),
@@ -79,7 +77,7 @@ class LocalClassifier:
     def __init__(self, pipeline=None):
         self._pipeline = pipeline  # None = not trained yet
 
-    def classify(self, text: str) -> Tuple[Optional[str], float]:
+    def classify(self, text: str) -> tuple[str | None, float]:
         """
         Returns (label, confidence). Label is None if model is untrained
         or confidence is in the dead zone (triggers Gemini).
@@ -97,7 +95,7 @@ class LocalClassifier:
         label = LABEL_TAMPER if confidence > _HIGH_CONFIDENCE else LABEL_NORMAL
         return label, confidence
 
-    def train(self, texts: List[str], labels: List[str]) -> Dict[str, Any]:
+    def train(self, texts: list[str], labels: list[str]) -> dict[str, Any]:
         """Train in-place. Returns train metrics."""
         from sklearn.metrics import classification_report
         pipeline = _build_pipeline()
@@ -107,7 +105,7 @@ class LocalClassifier:
         self._pipeline = pipeline
         return report
 
-    def serialise(self) -> Tuple[bytes, str]:
+    def serialise(self) -> tuple[bytes, str]:
         if self._pipeline is None:
             raise RuntimeError("Model not trained yet.")
         return _serialise_model(self._pipeline)
@@ -120,7 +118,7 @@ class LocalClassifier:
 
 # ── Gemini fallback for uncertain cases ─────────────────────────────────────
 
-def _gemini_classify(text: str) -> Tuple[str, str]:
+def _gemini_classify(text: str) -> tuple[str, str]:
     """
     Call Gemini for borderline events.
     Returns (label, explanation). Falls back to NORMAL on failure.
@@ -171,7 +169,7 @@ def _gemini_classify(text: str) -> Tuple[str, str]:
 
 # ── Unified classify entry point ─────────────────────────────────────────────
 
-def classify_event(text: str, classifier: Optional[LocalClassifier] = None) -> Dict[str, Any]:
+def classify_event(text: str, classifier: LocalClassifier | None = None) -> dict[str, Any]:
     """
     Fast AI loop:
       1. Run local model.
@@ -200,7 +198,7 @@ def classify_event(text: str, classifier: Optional[LocalClassifier] = None) -> D
 
 # ── Slow retrain loop ────────────────────────────────────────────────────────
 
-def retrain(db, storage=None) -> Dict[str, Any]:
+def retrain(db, storage=None) -> dict[str, Any]:
     """
     Train a new model from human-reviewed labels in review_queue.
     Validates on holdout. Promotes only if metrics >= current active model.
@@ -209,8 +207,8 @@ def retrain(db, storage=None) -> Dict[str, Any]:
     Returns:
         Dict with version, metrics, sha256, promoted flag.
     """
-    from sklearn.model_selection import train_test_split
     from sklearn.metrics import f1_score
+    from sklearn.model_selection import train_test_split
 
     # Gather human-labelled records (false negatives prioritised by fn_flag)
     all_rows = db.get_review_queue()
@@ -249,7 +247,7 @@ def retrain(db, storage=None) -> Dict[str, Any]:
 
     promoted = False
     version = datetime.now(timezone.utc).strftime("v%Y%m%d%H%M%S")
-    raw_bytes, sha256 = new_clf.serialise()
+    _raw_bytes, sha256 = new_clf.serialise()
 
     metrics = {
         "f1_tamper": holdout_f1,

@@ -93,6 +93,7 @@
         <p style="font-size:13px;color:#94a3b8;margin-bottom:20px">Your erasure request has been approved. Select exactly which data fields you want permanently deleted, or choose "Erase All". This cannot be undone once the admin confirms.</p>
         <form method="POST" action="{{ url_for('dashboard.dsar_select_fields', req_id=erasure_approved.id) }}"
               onsubmit="return confirm('Are you sure about your selection? This data cannot be recovered.')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px">
                 {% set erasable_fields = [
                     ('full_name', 'Full Name'),
@@ -161,6 +162,7 @@
             <div style="font-size:12px;color:#64748b;padding:8px 12px;background:#22263a;border-radius:6px">A request is already active or completed - check history below.</div>
             {% else %}
             <form method="POST" action="{{ url_for('dashboard.dsar_submit') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="request_type" value="ACCESS">
                 <button type="submit" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.4);color:#818cf8;padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Submit ACCESS Request</button>
             </form>
@@ -173,6 +175,7 @@
             <div style="font-size:12px;color:#64748b;padding:8px 12px;background:#22263a;border-radius:6px">An erasure request is already in progress - see above.</div>
             {% else %}
             <form method="POST" action="{{ url_for('dashboard.dsar_submit') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="request_type" value="ERASURE">
                 <button type="submit" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">Submit ERASURE Request</button>
             </form>

@@ -1,15 +1,16 @@
-import unittest
 import json
 import os
-import time
-import shutil
-from datetime import datetime, timezone
+import unittest
 import uuid
+from datetime import datetime, timezone
 
 # We will test the API endpoints using Flask's test client
 from m3.api import create_m3_app
-from m3.database import M3Database
-from m3.crypto_signer import generate_rsa_key_pair, get_public_key_fingerprint, sign_payload
+from m3.crypto_signer import (
+    generate_rsa_key_pair,
+    sign_payload,
+)
+
 
 class TestM3E2E(unittest.TestCase):
     @classmethod
@@ -21,10 +22,10 @@ class TestM3E2E(unittest.TestCase):
         # Ensure fresh state
         if os.path.exists(self.db_path):
             try: os.remove(self.db_path)
-            except: pass
+            except OSError: pass
         if os.path.exists(self.anchor_path):
             try: os.remove(self.anchor_path)
-            except: pass
+            except OSError: pass
             
         self.app = create_m3_app(db_path=self.db_path, anchor_path=self.anchor_path)
         self.client = self.app.test_client()
@@ -34,7 +35,7 @@ class TestM3E2E(unittest.TestCase):
         self.identity_id = "test_user_123"
         
         # Register Identity (ADMIN)
-        resp = self.client.post('/api/v1/identity/register', 
+        self.client.post('/api/v1/identity/register', 
             json={"identity_id": self.identity_id, "public_key_pem": self.public_pem},
             headers={"X-API-Key": self._get_auth_header("ADMIN")["X-API-Key"]}
         )

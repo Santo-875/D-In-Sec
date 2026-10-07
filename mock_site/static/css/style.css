@@ -5,52 +5,63 @@
 
 /* ── Design Tokens ─────────────────────────────────────── */
 :root, [data-theme="light"] {
-    /* Background layers */
-    --bg-body: #f1f5f9;
-    --bg-surface: #ffffff;
-    --bg-card: #ffffff;
-    --bg-card-solid: #ffffff;
-    --bg-elevated: #f8fafc;
-    --bg-input: #ffffff;
-    --bg-hover: #e2e8f0;
+    /* Palette Tokens */
+    --bg: #F5F7FA;
+    --surface: #FFFFFF;
+    --surface2: #EEF2F6;
+    --ink: #1F2A37;
+    --muted: #6B7280;
+    --border: #E3E8EF;
+    --primary: #3F6EA8;
+    --accent: #C8785A;
+    --success: #3F8F6B;
+    --warn: #C99A2E;
+    --danger: #C24D4D;
 
-    /* Accent palette */
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-glow: rgba(37, 99, 235, 0.25);
-    --accent-subtle: rgba(37, 99, 235, 0.12);
-    --gradient-brand: #2563eb;
-    --gradient-brand-hover: #1d4ed8;
-    --gradient-signup: #2563eb;
+    /* Background layers */
+    --bg-body: var(--bg);
+    --bg-surface: var(--surface);
+    --bg-card: var(--surface);
+    --bg-card-solid: var(--surface);
+    --bg-elevated: var(--surface2);
+    --bg-input: var(--surface);
+    --bg-hover: var(--surface2);
+
+    /* Accent & Brand */
+    --accent-hover: #325887;
+    --accent-glow: rgba(63, 110, 168, 0.25);
+    --accent-subtle: rgba(63, 110, 168, 0.12);
+    --gradient-brand: var(--primary);
+    --gradient-brand-hover: #325887;
+    --gradient-signup: var(--primary);
 
     /* Text */
-    --text-primary: #0f172a;
-    --text-secondary: #1e293b;
-    --text-muted: #475569;
-    --text-inverse: #ffffff;
+    --text-primary: var(--ink);
+    --text-secondary: #374151;
+    --text-muted: var(--muted);
+    --text-inverse: #FFFFFF;
 
     /* Status colors */
-    --green: #15803d;
-    --green-bg: #dcfce7;
-    --amber: #b45309;
-    --amber-bg: #fef3c7;
-    --red: #b91c1c;
-    --red-bg: #fee2e2;
-    --blue: #1d4ed8;
-    --blue-bg: #dbeafe;
+    --green: var(--success);
+    --green-bg: rgba(63, 143, 107, 0.15);
+    --amber: var(--warn);
+    --amber-bg: rgba(201, 154, 46, 0.15);
+    --red: var(--danger);
+    --red-bg: rgba(194, 77, 77, 0.15);
+    --blue: var(--primary);
+    --blue-bg: rgba(63, 110, 168, 0.15);
 
     /* Borders */
-    --border: #cbd5e1;
-    --border-focus: #2563eb;
-    --border-hover: #94a3b8;
+    --border-focus: var(--primary);
+    --border-hover: #9CA3AF;
 
     /* Glass & Shadows */
-    --glass-bg: rgba(255, 255, 255, 0.96);
-    --glass-border: #cbd5e1;
+    --glass-bg: rgba(255, 255, 255, 0.98);
+    --glass-border: var(--border);
     --glass-blur: 8px;
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
-    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.08);
 
     /* Layout */
     --nav-height: 64px;
@@ -65,51 +76,62 @@
 }
 
 [data-theme="dark"] {
-    /* Background layers - High Contrast Obsidian */
-    --bg-body: #080c14;
-    --bg-surface: #111827;
-    --bg-card: #111827;
-    --bg-card-solid: #111827;
-    --bg-elevated: #1a2333;
-    --bg-input: #0b101b;
-    --bg-hover: #1e293b;
+    /* Palette Tokens - Calm Dark Variant */
+    --bg: #111827;
+    --surface: #1F2937;
+    --surface2: #374151;
+    --ink: #F9FAFB;
+    --muted: #9CA3AF;
+    --border: #374151;
+    --primary: #60A5FA;
+    --accent: #FB923C;
+    --success: #34D399;
+    --warn: #FBBF24;
+    --danger: #F87171;
 
-    /* Accent palette */
-    --accent: #3b82f6;
-    --accent-hover: #60a5fa;
-    --accent-glow: rgba(59, 130, 246, 0.35);
-    --accent-subtle: rgba(59, 130, 246, 0.22);
-    --gradient-brand: #3b82f6;
-    --gradient-brand-hover: #60a5fa;
-    --gradient-signup: #3b82f6;
+    /* Background layers */
+    --bg-body: var(--bg);
+    --bg-surface: var(--surface);
+    --bg-card: var(--surface);
+    --bg-card-solid: var(--surface);
+    --bg-elevated: var(--surface2);
+    --bg-input: #111827;
+    --bg-hover: var(--surface2);
 
-    /* Text - Crisp & Distinct */
-    --text-primary: #ffffff;
-    --text-secondary: #e2e8f0;
-    --text-muted: #94a3b8;
-    --text-inverse: #080c14;
+    /* Accent & Brand */
+    --accent-hover: #93C5FD;
+    --accent-glow: rgba(96, 165, 250, 0.35);
+    --accent-subtle: rgba(96, 165, 250, 0.18);
+    --gradient-brand: var(--primary);
+    --gradient-brand-hover: #93C5FD;
+    --gradient-signup: var(--primary);
+
+    /* Text */
+    --text-primary: var(--ink);
+    --text-secondary: #E5E7EB;
+    --text-muted: var(--muted);
+    --text-inverse: #111827;
 
     /* Status colors */
-    --green: #22c55e;
-    --green-bg: rgba(34, 197, 94, 0.2);
-    --amber: #f59e0b;
-    --amber-bg: rgba(245, 158, 11, 0.2);
-    --red: #ef4444;
-    --red-bg: rgba(239, 68, 68, 0.2);
-    --blue: #38bdf8;
-    --blue-bg: rgba(56, 189, 248, 0.2);
+    --green: var(--success);
+    --green-bg: rgba(52, 211, 153, 0.2);
+    --amber: var(--warn);
+    --amber-bg: rgba(251, 191, 36, 0.2);
+    --red: var(--danger);
+    --red-bg: rgba(248, 113, 113, 0.2);
+    --blue: var(--primary);
+    --blue-bg: rgba(96, 165, 250, 0.2);
 
     /* Borders */
-    --border: #2a3854;
-    --border-hover: #3b82f6;
-    --border-focus: #60a5fa;
-    --glass-border: #2a3854;
-    --glass-bg: rgba(17, 24, 39, 0.96);
+    --border-hover: #4B5563;
+    --border-focus: var(--primary);
+    --glass-border: var(--border);
+    --glass-bg: rgba(31, 41, 55, 0.98);
 
     /* Shadows */
-    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.5);
-    --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.45);
-    --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.4);
 }
 
 body, .navbar, .sidebar, .dash-section, .auth-card, .stat-card, input, select, textarea, table, tr, th, td {
@@ -129,7 +151,7 @@ html {
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background-color: var(--bg-body);
     color: var(--text-primary);
     line-height: 1.6;
@@ -383,7 +405,8 @@ a:hover {
 
 .auth-brand-panel {
     flex: 0 0 380px;
-    background: var(--accent);
+    background: linear-gradient(135deg, #EBF1F8 0%, #F5F7FA 100%);
+    border-right: 1px solid var(--border);
     padding: 48px 36px;
     display: flex;
     align-items: center;
@@ -393,19 +416,32 @@ a:hover {
 }
 
 .auth-brand-signup {
-    background: var(--accent);
+    background: linear-gradient(135deg, #EBF1F8 0%, #F5F7FA 100%);
+}
+
+[data-theme="dark"] .auth-brand-panel,
+[data-theme="dark"] .auth-brand-signup {
+    background: linear-gradient(135deg, #1E293B 0%, #111827 100%);
+    border-right: 1px solid var(--border);
 }
 
 .auth-brand-content {
     position: relative;
     z-index: 1;
     text-align: center;
-    color: white;
+    color: var(--ink);
 }
 
 .auth-brand-icon {
     margin-bottom: 20px;
-    opacity: 0.95;
+}
+
+.auth-brand-icon svg rect {
+    stroke: var(--primary);
+}
+
+.auth-brand-icon svg path {
+    stroke: var(--primary);
 }
 
 .auth-brand-title {
@@ -413,11 +449,12 @@ a:hover {
     font-weight: 800;
     margin-bottom: 8px;
     letter-spacing: -0.02em;
+    color: var(--ink);
 }
 
 .auth-brand-subtitle {
     font-size: 0.9rem;
-    opacity: 0.85;
+    color: var(--muted);
     margin-bottom: 32px;
     line-height: 1.5;
 }
@@ -434,7 +471,11 @@ a:hover {
     align-items: center;
     gap: 10px;
     font-size: 0.85rem;
-    opacity: 0.9;
+    color: var(--ink);
+}
+
+.feature-item svg {
+    stroke: var(--primary);
 }
 
 .auth-form-panel {
@@ -558,14 +599,14 @@ a:hover {
 .input-wrapper input:focus,
 .input-wrapper select:focus,
 .input-wrapper textarea:focus {
-    border-color: var(--border-focus);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-    background: rgba(15, 23, 42, 1);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(63, 110, 168, 0.25);
+    background: var(--surface);
 }
 
 .input-wrapper input:focus + .input-icon,
 .input-wrapper:focus-within .input-icon {
-    color: var(--accent);
+    color: var(--primary);
 }
 
 .input-wrapper input::placeholder,

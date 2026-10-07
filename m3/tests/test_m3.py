@@ -8,22 +8,22 @@ Updated for Phase 1 security hardening:
   - Anti-replay fields (event_id, nonce) on /tree/update
 """
 
-import pytest
-import uuid
 import hashlib
-from datetime import datetime, timezone, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from m3.api import create_m3_app
+from m3.audit_log import AppendOnlyAuditLog
 from m3.crypto_signer import (
     generate_rsa_key_pair,
+    get_public_key_fingerprint,
     sign_payload,
     verify_signature,
-    PublicKeyRegistry,
-    get_public_key_fingerprint
 )
-from m3.merkle_tree import HierarchicalMerkleTree, compute_combined_leaf_hash
-from m3.audit_log import AppendOnlyAuditLog
 from m3.freeze_manager import FreezeManager
-from m3.m4_interface import M4PayloadFormatter
-from m3.api import create_m3_app
+from m3.merkle_tree import HierarchicalMerkleTree, compute_combined_leaf_hash
 
 ADMIN_HEADERS = {"X-API-Key": "dev-admin-key"}
 SERVICE_HEADERS = {"X-API-Key": "dev-service-key"}
@@ -50,7 +50,7 @@ def app_client():
     import os
     if os.path.exists(db_path):
         try: os.remove(db_path)
-        except: pass
+        except OSError: pass
 
 
 def test_rsa_signature_verification(keys):
@@ -97,7 +97,7 @@ def test_hierarchical_merkle_tree():
     # Update user 2 leaf 1 (isolation check - user 1 subroot unchanged)
     user1_subroot_before = tree.user_subroots[user1].subroot_hash
 
-    res2 = tree.update_leaf(
+    tree.update_leaf(
         user_id=user2,
         leaf_id="leaf_1",
         masked_pii_hash=hashlib.sha256(b"masked_2").hexdigest(),

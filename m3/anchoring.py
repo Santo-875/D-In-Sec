@@ -1,7 +1,7 @@
-import os
-from pathlib import Path
-from typing import Dict, Any
 import json
+from pathlib import Path
+from typing import Any
+
 
 class ExternalAnchor:
     """
@@ -15,7 +15,7 @@ class ExternalAnchor:
         if not self.anchor_file_path.exists():
             self.anchor_file_path.touch()
 
-    def anchor_checkpoint(self, checkpoint: Dict[str, Any]):
+    def anchor_checkpoint(self, checkpoint: dict[str, Any]):
         """
         Appends the checkpoint hash to the external anchor log.
         """

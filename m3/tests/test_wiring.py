@@ -4,15 +4,14 @@ Integration tests for Module 2 -> Module 3 wiring, key storage, and best-effort 
 spaCy is imported lazily / mocked so this file passes even without the en_core_web_sm model.
 """
 
-import os
-import sys
 import sqlite3
-import tempfile
+import sys
 import threading
 import time
 import types
-from pathlib import Path
+
 import pytest
+
 
 # ── Lazy / mock spaCy so tests pass without the model installed ───────────────
 def _mock_spacy():
@@ -27,7 +26,8 @@ def _mock_spacy():
         class _NLP:
             def __call__(self, text):
                 class _Doc:
-                    ents = []
+                    def __init__(self):
+                        self.ents = []
                 return _Doc()
 
         def _load(*args, **kwargs):
@@ -44,23 +44,19 @@ def _mock_spacy():
 _mock_spacy()
 # ─────────────────────────────────────────────────────────────────────────────
 
+from m3.api import create_m3_app
 from m3.crypto_signer import (
     generate_rsa_key_pair,
-    load_private_key_from_env,
     get_public_key_from_private_pem,
-    sign_payload,
-    verify_signature
+    load_private_key_from_env,
 )
-from m3.api import create_m3_app
-from Module_2.schemas import IncidentType, Severity, ClassificationResult
+from mock_site.vault.crypto import _load_or_create_key, decrypt, encrypt
+from Module_2.schemas import ClassificationResult, IncidentType, Severity
 from Module_2.tailer import (
-    _ensure_event_id_column,
     _insert_incident_alert,
-    _update_incident_event_id,
+    _register_key_with_m3,
     _send_update_to_m3,
-    _register_key_with_m3
 )
-from mock_site.vault.crypto import _load_or_create_key, encrypt, decrypt
 
 
 @pytest.fixture(scope="module")

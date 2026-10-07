@@ -7,12 +7,12 @@ Maintains a permanent, tamper-evident record of all system events:
   - External Anchoring Export (WORM / RFC 3161 / Public Ledger).
 """
 
+import hashlib
 import os
 import uuid
-import hashlib
-import json
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
 
 def _compute_hash(data: str) -> str:
     return hashlib.sha256(data.encode('utf-8')).hexdigest()
@@ -28,14 +28,14 @@ class AuditLogEntry:
         timestamp: str,
         user_id: str,
         leaf_id: str,
-        old_leaf_hash: Optional[str],
+        old_leaf_hash: str | None,
         new_leaf_hash: str,
         old_master_root: str,
         new_master_root: str,
         signature_hex: str,
         signer_fingerprint: str,
-        previous_hash: Optional[str] = None,
-        event_hash: Optional[str] = None
+        previous_hash: str | None = None,
+        event_hash: str | None = None
     ):
         self.event_id = event_id
         self.timestamp = timestamp
@@ -56,7 +56,7 @@ class AuditLogEntry:
             payload_to_hash = f"{self.previous_hash or 'GENESIS'}:{self.event_id}:{self.timestamp}:{self.new_leaf_hash}:{self.new_master_root}:{self.signature_hex}"
             self.event_hash = _compute_hash(payload_to_hash)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "timestamp": self.timestamp,
@@ -78,7 +78,7 @@ class PermanentRootCheckpoint:
     32-byte Master Root Checkpoint retained permanently even after detailed log pruning.
     Forms a cryptographic hash chain.
     """
-    def __init__(self, event_id: str, timestamp: str, master_root: str, user_id: str, previous_hash: Optional[str] = None, checkpoint_hash: Optional[str] = None):
+    def __init__(self, event_id: str, timestamp: str, master_root: str, user_id: str, previous_hash: str | None = None, checkpoint_hash: str | None = None):
         self.event_id = event_id
         self.timestamp = timestamp
         self.master_root = master_root
@@ -91,7 +91,7 @@ class PermanentRootCheckpoint:
             payload_to_hash = f"{self.previous_hash or 'GENESIS'}:{self.event_id}:{self.timestamp}:{self.master_root}"
             self.checkpoint_hash = _compute_hash(payload_to_hash)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "timestamp": self.timestamp,
@@ -110,9 +110,9 @@ class AppendOnlyAuditLog:
     RETENTION_DAYS = 180
 
     def __init__(self, db=None, external_anchor=None):
-        self._detailed_logs: List[AuditLogEntry] = []
-        self._permanent_root_chain: List[PermanentRootCheckpoint] = []
-        self._event_index: Dict[str, AuditLogEntry] = {}
+        self._detailed_logs: list[AuditLogEntry] = []
+        self._permanent_root_chain: list[PermanentRootCheckpoint] = []
+        self._event_index: dict[str, AuditLogEntry] = {}
         self.db = db
         self.external_anchor = external_anchor
         
@@ -140,14 +140,14 @@ class AppendOnlyAuditLog:
         self,
         user_id: str,
         leaf_id: str,
-        old_leaf_hash: Optional[str],
+        old_leaf_hash: str | None,
         new_leaf_hash: str,
         old_master_root: str,
         new_master_root: str,
         signature_hex: str,
         signer_fingerprint: str,
-        timestamp: Optional[str] = None,
-        event_id: Optional[str] = None,
+        timestamp: str | None = None,
+        event_id: str | None = None,
         conn = None
     ) -> AuditLogEntry:
         """
@@ -201,19 +201,19 @@ class AppendOnlyAuditLog:
 
         return entry
 
-    def get_event(self, event_id: str) -> Optional[AuditLogEntry]:
+    def get_event(self, event_id: str) -> AuditLogEntry | None:
         """Retrieves a detailed event entry by event_id."""
         return self._event_index.get(event_id)
 
-    def get_all_detailed_logs(self) -> List[Dict[str, Any]]:
+    def get_all_detailed_logs(self) -> list[dict[str, Any]]:
         """Returns all detailed logs."""
         return [log.to_dict() for log in self._detailed_logs]
 
-    def get_permanent_root_chain(self) -> List[Dict[str, Any]]:
+    def get_permanent_root_chain(self) -> list[dict[str, Any]]:
         """Returns the complete permanent root hash checkpoint chain."""
         return [cp.to_dict() for cp in self._permanent_root_chain]
 
-    def prune_logs_older_than(self, days: int = RETENTION_DAYS, reference_now: Optional[datetime] = None) -> Dict[str, Any]:
+    def prune_logs_older_than(self, days: int = RETENTION_DAYS, reference_now: datetime | None = None) -> dict[str, Any]:
         """
         Prunes detailed event logs older than `days` (default 180 days for CERT-In).
         The permanent 32-byte root hash chain is NEVER pruned.
@@ -255,7 +255,7 @@ class AppendOnlyAuditLog:
             "permanent_root_checkpoints_preserved": len(self._permanent_root_chain)
         }
 
-    def export_external_anchors(self) -> List[Dict[str, Any]]:
+    def export_external_anchors(self) -> list[dict[str, Any]]:
         """
         Exports permanent 32-byte root checkpoints formatted for external WORM / RFC 3161 / ledger anchoring.
         """

@@ -8,10 +8,8 @@ m3/tests/test_endpoints.py — Tests for Phase 4 & Phase 5:
   - Multi-tenant isolation
 """
 
-import json
-import os
-import tempfile
-import uuid
+from datetime import datetime, timezone
+
 import pytest
 
 from m3.api import create_m3_app
@@ -91,3 +89,76 @@ def test_full_verify_endpoint(client_and_db):
     assert resp.status_code == 200
     assert resp.json["status"] in ["VALID", "EMPTY", "UNVERIFIED", "TAMPER"]
     assert "db_root" in resp.json
+
+
+def test_tree_snapshot_endpoint(client_and_db):
+    client, _ = client_and_db
+    admin_headers = {"X-API-Key": "dev-admin-key"}
+    service_headers = {"X-API-Key": "dev-service-key"}
+    viewer_headers = {"X-API-Key": "dev-viewer-key"}
+
+    priv, pub = generate_rsa_key_pair()
+    reg_resp = client.post(
+        '/api/v1/identity/register',
+        json={"identity_id": "snap_user", "public_key_pem": pub},
+        headers=admin_headers
+    )
+    assert reg_resp.status_code == 200
+
+    # Write 1
+    w1 = {
+        "user_id": "snap_user",
+        "leaf_id": "doc_1",
+        "event_id": "evt_snap_1",
+        "nonce": "nonce_snap_1_123456",
+        "version": 1,
+        "masked_pii_hash": "1" * 64,
+        "real_data_hash": "2" * 64,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    sig1 = sign_payload(priv, w1)
+    res1 = client.post('/api/v1/tree/update', json={**w1, "signature_hex": sig1}, headers=service_headers)
+    assert res1.status_code == 200
+
+    # Write 2
+    w2 = {
+        "user_id": "snap_user",
+        "leaf_id": "doc_2",
+        "event_id": "evt_snap_2",
+        "nonce": "nonce_snap_2_123456",
+        "version": 1,
+        "masked_pii_hash": "3" * 64,
+        "real_data_hash": "4" * 64,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    sig2 = sign_payload(priv, w2)
+    res2 = client.post('/api/v1/tree/update', json={**w2, "signature_hex": sig2}, headers=service_headers)
+    assert res2.status_code == 200
+
+    # Verify snapshot master_root equals /tree/root
+    root_resp = client.get('/api/v1/tree/root', headers=viewer_headers)
+    assert root_resp.status_code == 200
+    expected_root = root_resp.json["master_root"]
+
+    snap_resp = client.get('/api/v1/tree/snapshot', headers=viewer_headers)
+    assert snap_resp.status_code == 200
+    snap = snap_resp.json
+
+    assert snap["master_root"] == expected_root
+    assert len(snap["users"]) >= 1
+    user_record = next(u for u in snap["users"] if u["user_id"] == "snap_user")
+    assert user_record["leaf_count"] == 2
+    assert len(user_record["leaves"]) == 2
+    leaf_ids = {leaf["leaf_id"] for leaf in user_record["leaves"]}
+    assert leaf_ids == {"doc_1", "doc_2"}
+
+    # root_history shows the changed roots
+    assert len(snap["root_history"]) >= 2
+    events_in_history = [e["event_id"] for e in snap["root_history"]]
+    assert "evt_snap_1" in events_in_history
+    assert "evt_snap_2" in events_in_history
+
+    evt2 = next(e for e in snap["root_history"] if e["event_id"] == "evt_snap_2")
+    assert evt2["new_master_root"] == expected_root
+    assert evt2["old_master_root"] is not None
+

@@ -1,13 +1,14 @@
-import pytest
+import json
 import os
-import time
 import uuid
 from datetime import datetime, timezone
 
-import json
-from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+import pytest
+
 from m3.api import create_m3_app
+from m3.crypto_signer import generate_rsa_key_pair, sign_payload
 from m3.database import M3Database
+
 
 @pytest.fixture
 def client():
@@ -16,10 +17,10 @@ def client():
     test_anchor_path = f"test_anchor_sec_{uuid.uuid4().hex[:8]}.log"
     if os.path.exists(test_db_path):
         try: os.remove(test_db_path)
-        except: pass
+        except OSError: pass
     if os.path.exists(test_anchor_path):
         try: os.remove(test_anchor_path)
-        except: pass
+        except OSError: pass
     
     app = create_m3_app(db_path=test_db_path, anchor_path=test_anchor_path)
     app.config['TESTING'] = True

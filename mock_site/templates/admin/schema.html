@@ -10,19 +10,20 @@
         <div class="section-header"><div class="section-title">Add New Field</div></div>
         <div class="admin-form">
             <form method="POST" action="{{ url_for('admin.schema_add') }}" id="schema-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                 <!-- Basic info -->
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Field Label <span style="color:#ef4444">*</span></label>
+                        <label>Field Label <span style="color:var(--danger)">*</span></label>
                         <input type="text" name="field_label" id="field_label" placeholder="e.g. Employee ID" required
                                oninput="autoKey(this.value)">
-                        <small style="color:#64748b;font-size:11px">Name shown to the user</small>
+                        <small style="color:var(--muted);font-size:11px">Name shown to the user</small>
                     </div>
                     <div class="form-group">
-                        <label>Internal Key <span style="color:#ef4444">*</span></label>
+                        <label>Internal Key <span style="color:var(--danger)">*</span></label>
                         <input type="text" name="field_name" id="field_name" placeholder="e.g. employee_id" required>
-                        <small style="color:#64748b;font-size:11px">No spaces, lowercase with underscores</small>
+                        <small style="color:var(--muted);font-size:11px">No spaces, lowercase with underscores</small>
                     </div>
                 </div>
 
@@ -40,7 +41,7 @@
                     <div class="form-group">
                         <label>Sort Order</label>
                         <input type="number" name="sort_order" value="0" min="0">
-                        <small style="color:#64748b;font-size:11px">Lower = shown first</small>
+                        <small style="color:var(--muted);font-size:11px">Lower = shown first</small>
                     </div>
                 </div>
 
@@ -59,26 +60,26 @@
                 </div>
 
                 <div style="margin-bottom:16px">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#94a3b8">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--muted)">
                         <input type="checkbox" name="is_required"> Required field
                     </label>
                 </div>
 
                 <!-- Sensitive toggle -->
-                <div style="border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:16px;background:rgba(245,158,11,0.04);margin-bottom:16px">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#f59e0b;font-weight:600;margin-bottom:4px">
+                <div style="border:1px solid rgba(201,154,46,0.3);border-radius:10px;padding:16px;background:rgba(201,154,46,0.06);margin-bottom:16px">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--warn);font-weight:600;margin-bottom:4px">
                         <input type="checkbox" name="is_sensitive" id="is_sensitive" onchange="toggleSensitive(this.checked)">
-                         This field contains sensitive personal data (PII)
+                        This field contains sensitive personal data (PII)
                     </label>
-                    <p style="font-size:11px;color:#64748b;margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
+                    <p style="font-size:11px;color:var(--muted);margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
                 </div>
 
                 <!-- Sensitive options (hidden unless toggled) -->
-                <div id="sensitive-options" style="display:none;border:1px solid #2e3247;border-radius:10px;padding:16px;margin-bottom:16px;background:#0f1117">
+                <div id="sensitive-options" style="display:none;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;background:var(--surface2)">
                     <div class="form-group" style="margin-bottom:16px">
                         <label>PII Category Name</label>
                         <input type="text" name="pii_category" placeholder="e.g. AADHAAR, PAN, EMPLOYEE_ID">
-                        <small style="color:#64748b;font-size:11px">Used for masking label: [REDACTED_YOUR_CATEGORY]</small>
+                        <small style="color:var(--muted);font-size:11px">Used for masking label: [REDACTED_YOUR_CATEGORY]</small>
                     </div>
 
                     <div class="form-group" style="margin-bottom:16px">
@@ -99,14 +100,14 @@
                             <option value="address">Address Text</option>
                             <option value="custom">Custom (enter regex below)</option>
                         </select>
-                        <small id="preset-hint" style="color:#818cf8;font-size:11px;margin-top:6px;display:block"></small>
+                        <small id="preset-hint" style="color:var(--primary);font-size:11px;margin-top:6px;display:block"></small>
                     </div>
 
                     <!-- Custom regex - only shown if preset = custom -->
                     <div id="custom-regex-group" style="display:none" class="form-group">
                         <label>Custom Regex Pattern</label>
                         <input type="text" name="custom_regex" id="custom_regex" placeholder="e.g. \b[A-Z]{2}\d{6}\b">
-                        <small style="color:#64748b;font-size:11px">Advanced: enter a regular expression for validation and masking</small>
+                        <small style="color:var(--muted);font-size:11px">Advanced: enter a regular expression for validation and masking</small>
                     </div>
                 </div>
 
@@ -133,23 +134,23 @@
                     <tr>
                         <td>
                             <strong>{{ f.field_label }}</strong><br>
-                            <small style="color:#64748b;font-family:monospace">{{ f.field_name }}</small>
-                            {% if f.help_text %}<br><small style="color:#4b5563">{{ f.help_text }}</small>{% endif %}
+                            <small style="color:var(--muted);font-family:monospace">{{ f.field_name }}</small>
+                            {% if f.help_text %}<br><small style="color:var(--muted)">{{ f.help_text }}</small>{% endif %}
                         </td>
                         <td><span class="badge badge-blue">{{ f.field_type }}</span></td>
                         <td>
                             {% if f.pii_category %}
                                 <span class="badge badge-amber">{{ f.pii_category }}</span><br>
-                                <small style="color:#64748b">{{ f.mask_label or '' }}</small>
+                                <small style="color:var(--muted)">{{ f.mask_label or '' }}</small>
                             {% else %}
-                                <span style="color:#4b5563;font-size:12px">Non-sensitive</span>
+                                <span style="color:var(--muted);font-size:12px">Non-sensitive</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if f.is_required %}<span class="badge badge-red">Yes</span>
                             {% else %}<span class="badge badge-gray">No</span>{% endif %}
                         </td>
-                        <td style="font-family:monospace;font-size:11px;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                        <td style="font-family:ui-monospace, monospace;font-size:11px;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
                             title="{{ f.regex_pattern or '-' }}">
                             {{ f.regex_pattern or '-' }}
                         </td>
@@ -158,13 +159,14 @@
                                 <a href="{{ url_for('admin.schema_edit', field_id=f.id) }}" class="btn btn-sm btn-primary" style="text-decoration:none">Edit</a>
                                 <form method="POST" action="{{ url_for('admin.schema_delete', field_id=f.id) }}"
                                       onsubmit="return confirm('Delete field {{ f.field_name }}?')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                                 </form>
                             </div>
                         </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" style="text-align:center;color:#64748b;padding:40px">No fields defined yet.</td></tr>
+                    <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">No fields defined yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

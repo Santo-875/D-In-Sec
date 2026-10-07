@@ -11,13 +11,13 @@ Pipeline:
   4. Route alert to incident_alerts table → appears in SOC dashboard
 """
 
-import os
 import json
-import sqlite3
 import logging
-from pathlib import Path
+import os
+import sqlite3
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple
+from pathlib import Path
+from typing import Any
 
 try:
     from dotenv import load_dotenv
@@ -50,7 +50,7 @@ def _format_detected_at(detected_at: str) -> str:
         return detected_at
 
 
-def deterministic_fallback_alert(facts: Dict[str, Any]) -> Dict[str, Any]:
+def deterministic_fallback_alert(facts: dict[str, Any]) -> dict[str, Any]:
     """
     Guaranteed fallback when Gemini is unavailable, rate-limited, or returns bad output.
     Uses only injected facts — zero risk of hallucination.
@@ -90,7 +90,7 @@ def deterministic_fallback_alert(facts: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def generate_breach_alert(facts: Dict[str, Any]) -> Dict[str, Any]:
+def generate_breach_alert(facts: dict[str, Any]) -> dict[str, Any]:
     """
     Translates cryptographic mismatch facts into a short, plain-language breach alert.
     AI is used only to translate facts into readable text — never to determine whether
@@ -144,7 +144,7 @@ Return a JSON object with EXACTLY these fields (nothing else):
     # Suppress SDK noise
     logging.getLogger("google.genai").setLevel(logging.ERROR)
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
     for model_name in _GEMINI_MODELS:
         try:
             client = genai.Client(api_key=api_key)
@@ -196,7 +196,7 @@ Return a JSON object with EXACTLY these fields (nothing else):
     return deterministic_fallback_alert(facts)
 
 
-def _build_cert_in_draft(alert: Dict[str, Any]) -> str:
+def _build_cert_in_draft(alert: dict[str, Any]) -> str:
     """Builds a CERT-In formatted compliance report draft for the alert."""
     evidence = alert.get("tamper_evidence", {})
     detected_at = alert.get("detected_at", "Unknown")
@@ -232,7 +232,7 @@ def _build_cert_in_draft(alert: Dict[str, Any]) -> str:
     )
 
 
-def record_breach_alert_to_db(alert: Dict[str, Any], db_path: Optional[Path] = None) -> Optional[int]:
+def record_breach_alert_to_db(alert: dict[str, Any], db_path: Path | None = None) -> int | None:
     """
     Persists a breach alert to the incident_alerts table in the mock_site SQLite database.
     This causes the alert to appear immediately on the SOC dashboard alongside Module 2 alerts.

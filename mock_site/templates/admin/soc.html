@@ -12,11 +12,11 @@
         {% set tamper_count = alerts | selectattr('incident_type', 'equalto', 'DATA_TAMPERING') | list | length %}
         {% set open_count   = alerts | selectattr('status', 'equalto', 'Open') | list | length %}
         {% if tamper_count > 0 %}
-        <span style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#ef4444; font-size:11px; padding:4px 12px; border-radius:20px; font-weight:600;">
-             {{ tamper_count }} Tampering Alert{{ 's' if tamper_count != 1 }}
+        <span style="background:rgba(194,77,77,0.15); border:1px solid rgba(194,77,77,0.4); color:var(--danger); font-size:11px; padding:4px 12px; border-radius:20px; font-weight:600;">
+            {{ tamper_count }} Tampering Alert{{ 's' if tamper_count != 1 }}
         </span>
         {% endif %}
-        <span style="background:rgba(100,116,139,0.1); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:4px 12px; border-radius:20px;">
+        <span style="background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:4px 12px; border-radius:20px;">
             {{ open_count }} Open / {{ alerts|length }} Total
         </span>
     </div>
@@ -39,7 +39,7 @@
         <tbody>
             {% for alert in alerts %}
             {% set is_tamper = alert.incident_type == 'DATA_TAMPERING' %}
-            <tr {% if is_tamper %}style="background: rgba(239,68,68,0.04); border-left: 3px solid rgba(239,68,68,0.5);"{% endif %}>
+            <tr {% if is_tamper %}style="background: rgba(194,77,77,0.06); border-left: 3px solid var(--danger);"{% endif %}>
                 <td style="font-variant-numeric: tabular-nums; white-space: nowrap;">
                     {{ alert.created_at.strftime('%Y-%m-%d') }}<br>
                     <small style="color:var(--muted);">{{ alert.created_at.strftime('%H:%M:%S') }}</small>
@@ -47,16 +47,11 @@
 
                 <td>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        {% if is_tamper %}
-                        <span style="font-size:16px;" title="Merkle Tree Integrity Violation"></span>
-                        {% else %}
-                        <span style="font-size:16px;" title="AI Classified Incident"></span>
-                        {% endif %}
                         <div>
-                            <span style="font-weight:600; {% if is_tamper %}color:#ef4444;{% endif %}">
+                            <span style="font-weight:600; {% if is_tamper %}color:var(--danger);{% endif %}">
                                 {{ alert.incident_type | replace('_', ' ') }}
                             </span><br>
-                            <small style="color:var(--muted); font-family:monospace; font-size:11px;">
+                            <small style="color:var(--muted); font-family:ui-monospace, monospace; font-size:11px;">
                                 {{ alert.masked_log_context[:70] }}{{ '…' if alert.masked_log_context|length > 70 }}
                             </small>
                         </div>
@@ -67,7 +62,7 @@
                     {% if is_tamper %}
                         <span class="badge badge-red" title="Deterministic Merkle hash check">M3 Engine</span>
                     {% else %}
-                        <span class="badge badge-blue" title="Gemini AI Classifier">AI / Rules</span>
+                        <span class="badge badge-blue" title="AI Classifier">AI / Rules</span>
                     {% endif %}
                 </td>
 
@@ -85,7 +80,7 @@
 
                 <td style="font-variant-numeric: tabular-nums;">
                     {% if is_tamper %}
-                        <span title="Deterministic - mathematical certainty" style="color:var(--red); font-weight:600;">100%</span>
+                        <span title="Deterministic - mathematical certainty" style="color:var(--danger); font-weight:600;">100%</span>
                     {% else %}
                         {{ (alert.confidence * 100)|round|int }}%
                     {% endif %}
@@ -94,12 +89,12 @@
                 <td>
                     {% if alert.event_id %}
                         <span title="Merkle event ID: {{ alert.event_id }}"
-                              style="font-family:monospace; font-size:10px; background:rgba(34,197,94,0.1);
-                                     color:#22c55e; padding:2px 8px; border-radius:8px; border:1px solid rgba(34,197,94,0.25);">
+                              style="font-family:ui-monospace, monospace; font-size:10px; background:rgba(63,143,107,0.12);
+                                     color:var(--success); padding:2px 8px; border-radius:8px; border:1px solid rgba(63,143,107,0.25);">
                             {{ alert.event_id[:12] }}…
                         </span>
                     {% elif is_tamper %}
-                        <span style="font-size:10px; color:#ef4444; font-family:monospace;">tamper</span>
+                        <span style="font-size:10px; color:var(--danger); font-family:ui-monospace, monospace;">tamper</span>
                     {% else %}
                         <span style="color:var(--muted); font-size:11px;">-</span>
                     {% endif %}
@@ -117,6 +112,7 @@
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
                         {% if alert.status == 'Open' %}
                         <form method="POST" action="{{ url_for('admin.soc_review', alert_id=alert.id) }}" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-success">Mark Reviewed</button>
                         </form>
                         {% endif %}
@@ -124,7 +120,7 @@
                         <a href="{{ url_for('admin.soc_export_cert_in', alert_id=alert.id) }}"
                            class="btn btn-sm btn-primary"
                            title="Export CERT-In Compliance Report PDF">
-                            {% if is_tamper %}{% endif %} Export Report
+                            Export Report
                         </a>
                         {% endif %}
                     </div>
@@ -133,7 +129,6 @@
             {% else %}
             <tr>
                 <td colspan="8" style="text-align:center; color:var(--muted); padding:48px;">
-                    <div style="font-size:32px; margin-bottom:12px;"></div>
                     No security incidents detected. System integrity is verified.
                 </td>
             </tr>
@@ -144,8 +139,8 @@
 
 {% if alerts %}
 <div style="margin-top:16px; display:flex; gap:20px; font-size:12px; color:var(--muted);">
-    <span> = Merkle Tree integrity violation (deterministic, 100% certainty)</span>
-    <span> = AI-classified behavioural anomaly</span>
+    <span>&bull; Merkle Tree integrity violation (deterministic, 100% certainty)</span>
+    <span>&bull; AI-classified behavioural anomaly</span>
 </div>
 {% endif %}
 {% endblock %}

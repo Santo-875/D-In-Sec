@@ -11,11 +11,11 @@ Storage is in-memory with periodic TTL-based cleanup.
 Phase 2 will persist this to SQLite for durability across restarts.
 """
 
-import time
-import threading
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, Set, Tuple, Any
+import threading
+import time
+from datetime import datetime, timezone
+from typing import Any
 
 logger = logging.getLogger("m3.replay_guard")
 
@@ -40,13 +40,13 @@ class ReplayGuard:
         self.db = db
 
         # Seen event IDs with their insertion timestamp (for TTL cleanup)
-        self._seen_event_ids: Dict[str, float] = {}
+        self._seen_event_ids: dict[str, float] = {}
 
         # Seen nonces with their insertion timestamp
-        self._seen_nonces: Dict[str, float] = {}
+        self._seen_nonces: dict[str, float] = {}
 
         # Current version per leaf: (user_id, leaf_id) -> version
-        self._leaf_versions: Dict[Tuple[str, str], int] = {}
+        self._leaf_versions: dict[tuple[str, str], int] = {}
         
         if self.db:
             self._load_from_db()
@@ -85,9 +85,9 @@ class ReplayGuard:
         timestamp: str,
         user_id: str,
         leaf_id: str,
-        version: Optional[int] = None,
-        conn: Optional[Any] = None
-    ) -> Tuple[bool, Optional[str]]:
+        version: int | None = None,
+        conn: Any | None = None
+    ) -> tuple[bool, str | None]:
         """
         Validates an incoming request against all replay protection checks.
 
@@ -144,7 +144,7 @@ class ReplayGuard:
 
         return True, None
 
-    def _check_timestamp(self, timestamp: str) -> Tuple[bool, Optional[str]]:
+    def _check_timestamp(self, timestamp: str) -> tuple[bool, str | None]:
         """Validates that the timestamp is within the acceptable time window."""
         try:
             ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
@@ -191,7 +191,7 @@ class ReplayGuard:
                 f"{len(expired_nonces)} nonces."
             )
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Returns current tracking counts for monitoring."""
         with self._lock:
             return {

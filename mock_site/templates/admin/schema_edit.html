@@ -4,24 +4,25 @@
 
 {% block content %}
 <div style="max-width:800px;margin:0 auto">
-    <div style="margin-bottom:24px"><a href="{{ url_for('admin.schema') }}" style="color:#818cf8;text-decoration:none;font-size:14px"><- Back to Schema Builder</a></div>
+    <div style="margin-bottom:24px"><a href="{{ url_for('admin.schema') }}" style="color:var(--primary);text-decoration:none;font-size:14px">&larr; Back to Schema Builder</a></div>
     
     <div class="section-header"><div class="section-title">Edit Field: {{ field.field_label }}</div></div>
     
     <div class="admin-form">
         <form method="POST" action="{{ url_for('admin.schema_edit', field_id=field.id) }}" id="schema-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <!-- Basic info -->
             <div class="form-row">
                 <div class="form-group">
-                    <label>Field Label <span style="color:#ef4444">*</span></label>
+                    <label>Field Label <span style="color:var(--danger)">*</span></label>
                     <input type="text" name="field_label" id="field_label" value="{{ field.field_label }}" required>
-                    <small style="color:#64748b;font-size:11px">Name shown to the user</small>
+                    <small style="color:var(--muted);font-size:11px">Name shown to the user</small>
                 </div>
                 <div class="form-group">
                     <label>Internal Key</label>
-                    <input type="text" value="{{ field.field_name }}" disabled style="opacity:0.6;background:#1a1d27">
-                    <small style="color:#64748b;font-size:11px">Internal keys cannot be changed after creation</small>
+                    <input type="text" value="{{ field.field_name }}" disabled style="opacity:0.6;background:var(--surface2)">
+                    <small style="color:var(--muted);font-size:11px">Internal keys cannot be changed after creation</small>
                 </div>
             </div>
 
@@ -39,7 +40,7 @@
                 <div class="form-group">
                     <label>Sort Order</label>
                     <input type="number" name="sort_order" value="{{ field.sort_order }}" min="0">
-                    <small style="color:#64748b;font-size:11px">Lower = shown first</small>
+                    <small style="color:var(--muted);font-size:11px">Lower = shown first</small>
                 </div>
             </div>
 
@@ -58,26 +59,26 @@
             </div>
 
             <div style="margin-bottom:16px">
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#94a3b8">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--muted)">
                     <input type="checkbox" name="is_required" {% if field.is_required %}checked{% endif %}> Required field
                 </label>
             </div>
 
             <!-- Sensitive toggle -->
-            <div style="border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:16px;background:rgba(245,158,11,0.04);margin-bottom:16px">
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:#f59e0b;font-weight:600;margin-bottom:4px">
+            <div style="border:1px solid rgba(201,154,46,0.3);border-radius:10px;padding:16px;background:rgba(201,154,46,0.06);margin-bottom:16px">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--warn);font-weight:600;margin-bottom:4px">
                     <input type="checkbox" name="is_sensitive" id="is_sensitive" onchange="toggleSensitive(this.checked)" {% if field.pii_category %}checked{% endif %}>
-                     This field contains sensitive personal data (PII)
+                    This field contains sensitive personal data (PII)
                 </label>
-                <p style="font-size:11px;color:#64748b;margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
+                <p style="font-size:11px;color:var(--muted);margin:0">Enable this if the field stores ID numbers, government IDs, biometrics, financial data, etc. It will be masked in Module 2 logs.</p>
             </div>
 
             <!-- Sensitive options (hidden unless toggled) -->
-            <div id="sensitive-options" style="display:{% if field.pii_category %}block{% else %}none{% endif %};border:1px solid #2e3247;border-radius:10px;padding:16px;margin-bottom:16px;background:#0f1117">
+            <div id="sensitive-options" style="display:{% if field.pii_category %}block{% else %}none{% endif %};border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;background:var(--surface2)">
                 <div class="form-group" style="margin-bottom:16px">
                     <label>PII Category Name</label>
                     <input type="text" name="pii_category" value="{{ field.pii_category or '' }}" placeholder="e.g. AADHAAR, PAN, EMPLOYEE_ID">
-                    <small style="color:#64748b;font-size:11px">Used for masking label: [REDACTED_YOUR_CATEGORY]</small>
+                    <small style="color:var(--muted);font-size:11px">Used for masking label: [REDACTED_YOUR_CATEGORY]</small>
                 </div>
 
                 <div class="form-group" style="margin-bottom:16px">
@@ -98,14 +99,14 @@
                         <option value="address">Address Text</option>
                         <option value="custom">Custom (enter regex below)</option>
                     </select>
-                    <small id="preset-hint" style="color:#818cf8;font-size:11px;margin-top:6px;display:block"></small>
+                    <small id="preset-hint" style="color:var(--primary);font-size:11px;margin-top:6px;display:block"></small>
                 </div>
 
                 <!-- Custom regex - only shown if preset = custom -->
                 <div id="custom-regex-group" style="display:none" class="form-group">
                     <label>Custom Regex Pattern</label>
                     <input type="text" name="custom_regex" id="custom_regex" value="{{ field.regex_pattern or '' }}" placeholder="e.g. \b[A-Z]{2}\d{6}\b">
-                    <small style="color:#64748b;font-size:11px">Advanced: enter a regular expression for validation and masking</small>
+                    <small style="color:var(--muted);font-size:11px">Advanced: enter a regular expression for validation and masking</small>
                 </div>
             </div>
 
@@ -145,8 +146,6 @@ function updatePresetHint(val) {
 // On load, if there's an existing custom regex but no preset matched, set to custom
 window.onload = function() {
     {% if field.pii_category %}
-        // If we have a pattern, we don't automatically know which preset it was.
-        // We'll set it to 'custom' to display the pattern so they don't lose it.
         document.getElementById('preset_type').value = 'custom';
         updatePresetHint('custom');
     {% endif %}

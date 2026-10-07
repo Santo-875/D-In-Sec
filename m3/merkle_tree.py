@@ -13,7 +13,7 @@ cryptographic path inclusion/transition proofs, and independent proof verificati
 """
 
 import hashlib
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 
 
 def compute_hash(data: str) -> str:
@@ -68,7 +68,7 @@ class LeafNode:
             masked_pii_hash, real_data_hash
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "leaf_id": self.leaf_id,
             "user_id": self.user_id,
@@ -89,11 +89,11 @@ class UserSubroot:
     def __init__(self, user_id: str):
         self.user_id = user_id
         # Maps leaf_id -> LeafNode
-        self.leaves: Dict[str, LeafNode] = {}
+        self.leaves: dict[str, LeafNode] = {}
         self.subroot_hash: str = self.EMPTY_SUBROOT_HASH
 
     def update_leaf(self, leaf_id: str, masked_pii_hash: str, real_data_hash: str,
-                    timestamp: str) -> Tuple[LeafNode, str, str]:
+                    timestamp: str) -> tuple[LeafNode, str, str]:
         """
         Updates or appends a leaf in this user's subroot.
 
@@ -150,7 +150,7 @@ class UserSubroot:
 
         self.subroot_hash = compute_hash(f"USER:{self.user_id}:{hashes[0]}")
 
-    def get_leaf_proof(self, leaf_id: str) -> List[Dict[str, str]]:
+    def get_leaf_proof(self, leaf_id: str) -> list[dict[str, str]]:
         """
         Generates Merkle inclusion proof siblings for a specific leaf within user subroot.
         """
@@ -192,7 +192,7 @@ class HierarchicalMerkleTree:
 
     def __init__(self, db=None):
         # Maps user_id -> UserSubroot
-        self.user_subroots: Dict[str, UserSubroot] = {}
+        self.user_subroots: dict[str, UserSubroot] = {}
         self.master_root: str = self.EMPTY_MASTER_ROOT
         self.db = db
         
@@ -232,7 +232,7 @@ class HierarchicalMerkleTree:
         return self.user_subroots[user_id]
 
     def update_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str,
-                    real_data_hash: str, timestamp: str, conn = None) -> Dict[str, Any]:
+                    real_data_hash: str, timestamp: str, conn = None) -> dict[str, Any]:
         """
         Executes hierarchical path update: leaf -> user subroot -> master root.
 
@@ -300,7 +300,7 @@ class HierarchicalMerkleTree:
 
         self.master_root = compute_hash(f"MASTER:{hashes[0]}")
 
-    def _get_master_sibling_proof(self, target_user_id: str) -> List[Dict[str, str]]:
+    def _get_master_sibling_proof(self, target_user_id: str) -> list[dict[str, str]]:
         """
         Generates Merkle siblings proof for user subroots under master root.
         """
@@ -332,7 +332,7 @@ class HierarchicalMerkleTree:
 
         return proof
 
-    def generate_full_proof(self, user_id: str, leaf_id: str) -> Optional[Dict[str, Any]]:
+    def generate_full_proof(self, user_id: str, leaf_id: str) -> dict[str, Any] | None:
         """
         Generates cryptographic inclusion proof for a leaf and user subtree up to Master Root.
         """
@@ -358,7 +358,7 @@ class HierarchicalMerkleTree:
         }
 
     def check_leaf_integrity(self, user_id: str, leaf_id: str,
-                             masked_pii_hash: str, real_data_hash: str) -> Tuple[bool, Optional[str], Optional[str]]:
+                             masked_pii_hash: str, real_data_hash: str) -> tuple[bool, str | None, str | None]:
         """
         Deterministically checks leaf integrity against current tree state.
 
@@ -394,11 +394,11 @@ class HierarchicalMerkleTree:
     @staticmethod
     def verify_proof(
         leaf_hash: str,
-        leaf_proof: List[Dict[str, str]],
-        subroot_proof: List[Dict[str, str]],
+        leaf_proof: list[dict[str, str]],
+        subroot_proof: list[dict[str, str]],
         user_id: str,
         claimed_master_root: str
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Independently verifies a Merkle inclusion proof by walking
         leaf → subroot → master root and comparing against claimed root.

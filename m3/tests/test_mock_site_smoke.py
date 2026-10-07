@@ -2,15 +2,17 @@
 m3/tests/test_mock_site_smoke.py — Smoke tests for mock_site and SOC dashboard routes.
 """
 
-import sys
 import os
+import sys
+
 import pytest
 
 # Ensure mock_site is on Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "mock_site")))
 flask_login = pytest.importorskip("flask_login")
 from app import create_app
-from models import db, IncidentAlert, User
+from models import IncidentAlert, User, db
+
 
 @pytest.fixture
 def mock_app(tmp_path):
@@ -78,3 +80,33 @@ def test_soc_anchor_route(mock_client):
 def test_soc_model_rollback_route(mock_client):
     res = mock_client.post("/soc/model/rollback/v1.0.0")
     assert res.status_code == 302
+
+
+def test_login_alias_route(mock_client):
+    res = mock_client.get("/login")
+    assert res.status_code == 200
+
+
+def test_admin_and_merkle_routes(mock_app, mock_client):
+    with mock_app.app_context():
+        admin = User.query.filter_by(is_admin=True).first()
+        if not admin:
+            admin = User(username="admin_user", email="admin@test.com", is_admin=True)
+            admin.set_password("validpassword10")
+            db.session.add(admin)
+            db.session.commit()
+        admin_id = admin.id
+
+    with mock_client.session_transaction() as sess:
+        sess["_user_id"] = str(admin_id)
+        sess["_fresh"] = True
+
+    r_admin = mock_client.get("/admin/")
+    assert r_admin.status_code == 200
+
+    r_merkle = mock_client.get("/admin/merkle")
+    assert r_merkle.status_code == 200
+
+    r_merkle_data = mock_client.get("/admin/merkle/data")
+    assert r_merkle_data.status_code == 200
+

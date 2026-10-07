@@ -13,12 +13,12 @@ API keys and their roles are configured via the M3_API_KEYS environment variable
 as a JSON object: {"key": "ROLE", ...}
 """
 
-import os
 import json
 import logging
+import os
 from functools import wraps
-from typing import Dict, Optional, Set
-from flask import request, jsonify
+
+from flask import jsonify, request
 
 logger = logging.getLogger("m3.auth")
 
@@ -37,7 +37,7 @@ _DEV_KEYS = {
 }
 
 
-def _load_api_keys() -> Dict[str, str]:
+def _load_api_keys() -> dict[str, str]:
     """
     Loads API key → role mapping from M3_API_KEYS environment variable.
     Falls back to development keys if not set, with a warning.
@@ -64,12 +64,12 @@ def _load_api_keys() -> Dict[str, str]:
     return _DEV_KEYS.copy()
 
 
-def get_api_keys() -> Dict[str, str]:
+def get_api_keys() -> dict[str, str]:
     """Returns the current API key → role mapping. Reloads from env each call."""
     return _load_api_keys()
 
 
-def authenticate_request() -> tuple[Optional[str], Optional[str]]:
+def authenticate_request() -> tuple[str | None, str | None]:
     """
     Extracts and validates the API key from the request.
 
@@ -106,7 +106,7 @@ def require_role(*allowed_roles: str):
     Returns:
         Decorated function that checks auth before executing the route handler.
     """
-    allowed_set: Set[str] = set(allowed_roles)
+    allowed_set: set[str] = set(allowed_roles)
 
     def decorator(f):
         @wraps(f)

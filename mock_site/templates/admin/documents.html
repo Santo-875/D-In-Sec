@@ -29,11 +29,11 @@
             {% set doc = row[0] %}
             {% set username = row[1] %}
             <tr>
-                <td style="color:#64748b">{{ doc.id }}</td>
-                <td><strong>{{ username }}</strong><br><small style="color:#64748b">user_id={{ doc.user_id }}</small></td>
+                <td style="color:var(--muted)">{{ doc.id }}</td>
+                <td><strong>{{ username }}</strong><br><small style="color:var(--muted)">user_id={{ doc.user_id }}</small></td>
                 <td>{{ doc.doc_type }}</td>
-                <td style="font-family:monospace;font-size:11px;color:#64748b">{{ doc.file_token[:12] }}...</td>
-                <td style="color:#64748b;font-size:12px">{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}</td>
+                <td style="font-family:ui-monospace, monospace;font-size:11px;color:var(--muted)">{{ doc.file_token[:12] }}...</td>
+                <td style="color:var(--muted);font-size:12px">{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}</td>
                 <td>
                     {% if doc.status == 'Verified' %}
                         <span class="badge badge-green">Verified</span>
@@ -43,27 +43,28 @@
                         <span class="badge badge-amber">Pending</span>
                     {% endif %}
                 </td>
-                <td style="font-size:12px;color:#94a3b8">{{ doc.admin_note or '-' }}</td>
+                <td style="font-size:12px;color:var(--muted)">{{ doc.admin_note or '-' }}</td>
                 <td>
                     {% if doc.status == 'Pending' %}
                     <button class="btn btn-sm btn-success" onclick="document.getElementById('verify-{{ doc.id }}').style.display='block'">Review</button>
-                    <div id="verify-{{ doc.id }}" style="display:none;margin-top:10px;padding:12px;background:#0f1117;border-radius:8px;border:1px solid #2e3247">
+                    <div id="verify-{{ doc.id }}" style="display:none;margin-top:10px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
                         <form method="POST" action="{{ url_for('admin.verify_document', doc_id=doc.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <textarea name="admin_note" placeholder="Optional note..." rows="2"
-                                style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
+                                style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--ink);border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"> Approve</button>
-                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger"> Reject</button>
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve</button>
+                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">Reject</button>
                             </div>
                         </form>
                     </div>
                     {% else %}
-                    <span style="font-size:12px;color:#4b5563">-</span>
+                    <span style="font-size:12px;color:var(--muted)">-</span>
                     {% endif %}
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="8" style="text-align:center;color:#64748b;padding:40px">No documents submitted yet.</td></tr>
+            <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">No documents submitted yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>

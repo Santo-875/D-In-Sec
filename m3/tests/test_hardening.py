@@ -1,13 +1,13 @@
-import unittest
 import json
 import os
-import time
-from datetime import datetime, timezone, timedelta
+import unittest
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from m3.api import create_m3_app
 from m3.crypto_signer import generate_rsa_key_pair, sign_payload
+
 
 class TestM3Hardening(unittest.TestCase):
     @classmethod
@@ -19,10 +19,10 @@ class TestM3Hardening(unittest.TestCase):
         self.anchor_path = f"test_anchor_hard_{uuid.uuid4().hex[:8]}.log"
         if os.path.exists(self.db_path):
             try: os.remove(self.db_path)
-            except: pass
+            except OSError: pass
         if os.path.exists(self.anchor_path):
             try: os.remove(self.anchor_path)
-            except: pass
+            except OSError: pass
             
         self.app = create_m3_app(db_path=self.db_path, anchor_path=self.anchor_path)
         self.client = self.app.test_client()

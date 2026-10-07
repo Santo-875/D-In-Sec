@@ -13,14 +13,14 @@ Env:
     M3_ENV          = dev | prod   (default: dev)
 """
 
-import os
 import json
 import logging
+import os
 import threading
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("m3.storage")
 
@@ -48,34 +48,34 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def put_log(self, tenant_id: str, user_id: str, ts: str,
-                leaf_hash: str, payload: Dict[str, Any]) -> Optional[str]:
+                leaf_hash: str, payload: dict[str, Any]) -> str | None:
         """Upload a log entry. Returns the key/path or None on failure."""
 
     @abstractmethod
     def put_root(self, date: str, root_hash: str,
-                 payload: Dict[str, Any]) -> Optional[str]:
+                 payload: dict[str, Any]) -> str | None:
         """Upload a signed root checkpoint. Returns the key/path or None."""
 
     @abstractmethod
     def put_summary(self, date: str,
-                    payload: Dict[str, Any]) -> Optional[str]:
+                    payload: dict[str, Any]) -> str | None:
         """Upload a daily CERT-In summary. Returns the key/path or None."""
 
     @abstractmethod
     def put_model(self, version: str,
-                  payload: Dict[str, Any]) -> Optional[str]:
+                  payload: dict[str, Any]) -> str | None:
         """Upload model metadata. Returns the key/path or None."""
 
     @abstractmethod
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
+    def get(self, key: str) -> dict[str, Any] | None:
         """Download and parse a stored JSON object. Returns None if missing."""
 
     @abstractmethod
-    def list(self, prefix: str) -> List[str]:
+    def list(self, prefix: str) -> list[str]:
         """List keys/paths under prefix."""
 
     @abstractmethod
-    def anchor(self, tenant_id: str, checkpoint: Dict[str, Any]) -> Optional[str]:
+    def anchor(self, tenant_id: str, checkpoint: dict[str, Any]) -> str | None:
         """
         Write a signed checkpoint to roots/ prefix.
         Returns the key used or None on failure.
@@ -98,7 +98,7 @@ class LocalBackend(StorageBackend):
         self.base_dir = base_dir
         os.makedirs(base_dir, exist_ok=True)
 
-    def _write(self, key: str, payload: Dict[str, Any]) -> str:
+    def _write(self, key: str, payload: dict[str, Any]) -> str:
         path = os.path.join(self.base_dir, key.replace("/", os.sep))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -117,14 +117,14 @@ class LocalBackend(StorageBackend):
     def put_model(self, version, payload):
         return self._write(_model_key(version), payload)
 
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
+    def get(self, key: str) -> dict[str, Any] | None:
         path = os.path.join(self.base_dir, key.replace("/", os.sep))
         if not os.path.exists(path):
             return None
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def list(self, prefix: str) -> List[str]:
+    def list(self, prefix: str) -> list[str]:
         prefix_path = os.path.join(self.base_dir, prefix.replace("/", os.sep))
         results = []
         if not os.path.isdir(prefix_path):
@@ -158,10 +158,10 @@ class S3Backend(StorageBackend):
         self.kms_data_key_id = kms_data_key_id or kwargs.get("kms_key_id", "")
         self._s3 = boto3.client("s3", region_name=region)
 
-    def _put(self, key: str, payload: Dict[str, Any]) -> Optional[str]:
+    def _put(self, key: str, payload: dict[str, Any]) -> str | None:
         try:
             body = json.dumps(payload).encode("utf-8")
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "Bucket": self.bucket,
                 "Key": key,
                 "Body": body,
@@ -191,7 +191,7 @@ class S3Backend(StorageBackend):
     def put_model(self, version, payload):
         return self._put(_model_key(version), payload)
 
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
+    def get(self, key: str) -> dict[str, Any] | None:
         try:
             resp = self._s3.get_object(Bucket=self.bucket, Key=key)
             return json.loads(resp["Body"].read().decode("utf-8"))
@@ -199,7 +199,7 @@ class S3Backend(StorageBackend):
             logger.debug("S3 GET failed for key=%s: %s", key, exc)
             return None
 
-    def list(self, prefix: str) -> List[str]:
+    def list(self, prefix: str) -> list[str]:
         try:
             paginator = self._s3.get_paginator("list_objects_v2")
             keys = []
@@ -267,7 +267,7 @@ class DurableStorage:
         self.db = db
         self._lock = threading.Lock()
 
-    def _queue_retry(self, op: str, payload: Dict[str, Any]) -> None:
+    def _queue_retry(self, op: str, payload: dict[str, Any]) -> None:
         """Persist a failed upload to pending_uploads table."""
         try:
             self.db.enqueue_pending_upload(op, payload)
@@ -385,7 +385,7 @@ class DurableStorage:
             else:
                 logger.warning("Pending upload id=%s op=%s still failing.", upload_id, op)
 
-    def _replay(self, op: str, meta: Dict[str, Any]) -> bool:
+    def _replay(self, op: str, meta: dict[str, Any]) -> bool:
         """Re-execute a queued storage operation. Returns True on success."""
         try:
             if op == "put_log":

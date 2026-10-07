@@ -1,8 +1,9 @@
-import sqlite3
 import json
-from pathlib import Path
+import sqlite3
 from contextlib import closing
-from typing import Dict, List, Any, Optional
+from pathlib import Path
+from typing import Any
+
 
 class M3Database:
     """
@@ -207,7 +208,7 @@ class M3Database:
                     (identity_id, public_key_pem, fingerprint, registered_at)
                 )
 
-    def load_identity_keys(self) -> Dict[str, Dict[str, str]]:
+    def load_identity_keys(self) -> dict[str, dict[str, str]]:
         keys = {}
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT identity_id, public_key_pem, fingerprint, registered_at, is_revoked FROM identity_keys")
@@ -227,7 +228,7 @@ class M3Database:
                 return cursor.rowcount > 0
 
     # --- Merkle Leaves ---
-    def save_merkle_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, combined_hash: str, timestamp: str, version: int, conn: Optional[sqlite3.Connection] = None):
+    def save_merkle_leaf(self, user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: str, combined_hash: str, timestamp: str, version: int, conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute(
                 """INSERT OR REPLACE INTO merkle_leaves 
@@ -242,7 +243,7 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def load_merkle_leaves(self) -> List[Dict[str, Any]]:
+    def load_merkle_leaves(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT user_id, leaf_id, masked_pii_hash, real_data_hash, combined_hash, timestamp, version FROM merkle_leaves ORDER BY timestamp ASC")
             return [
@@ -254,7 +255,7 @@ class M3Database:
             ]
 
     # --- Audit Events ---
-    def save_audit_event(self, entry: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+    def save_audit_event(self, entry: dict[str, Any], conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute(
                 """INSERT INTO audit_events 
@@ -271,14 +272,14 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def load_audit_events(self) -> List[Dict[str, Any]]:
+    def load_audit_events(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT * FROM audit_events ORDER BY timestamp ASC")
             cols = [desc[0] for desc in cursor.description]
             return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
     # --- Checkpoints ---
-    def save_checkpoint(self, checkpoint: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+    def save_checkpoint(self, checkpoint: dict[str, Any], conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute(
                 """INSERT INTO root_checkpoints (event_id, timestamp, master_root, user_id, previous_hash, checkpoint_hash)
@@ -293,13 +294,13 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def load_checkpoints(self) -> List[Dict[str, Any]]:
+    def load_checkpoints(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT * FROM root_checkpoints ORDER BY timestamp ASC")
             cols = [desc[0] for desc in cursor.description]
             return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
-    def save_freeze_state(self, user_id: str, reason: str, frozen_at: str, freeze_id: str = None, expires_at: str = None, initiated_by: str = None):
+    def save_freeze_state(self, user_id: str, reason: str, frozen_at: str, freeze_id: str | None = None, expires_at: str | None = None, initiated_by: str | None = None):
         with closing(self.get_connection()) as conn:
             with conn:
                 conn.execute("INSERT OR REPLACE INTO freeze_states (user_id, reason, frozen_at, freeze_id, expires_at, initiated_by) VALUES (?, ?, ?, ?, ?, ?)",
@@ -310,7 +311,7 @@ class M3Database:
             with conn:
                 conn.execute("DELETE FROM freeze_states WHERE user_id = ?", (user_id,))
 
-    def load_freeze_states(self) -> Dict[str, Dict[str, str]]:
+    def load_freeze_states(self) -> dict[str, dict[str, str]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT user_id, reason, frozen_at, freeze_id, expires_at, initiated_by FROM freeze_states")
             return {
@@ -325,7 +326,7 @@ class M3Database:
             }
 
     # --- M4 Payloads ---
-    def save_m4_payload(self, event_id: str, payload: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
+    def save_m4_payload(self, event_id: str, payload: dict[str, Any], conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute("INSERT OR REPLACE INTO m4_payloads (event_id, payload_json) VALUES (?, ?)",
                       (event_id, json.dumps(payload)))
@@ -336,7 +337,7 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def load_m4_payload(self, event_id: str) -> Optional[Dict[str, Any]]:
+    def load_m4_payload(self, event_id: str) -> dict[str, Any] | None:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT payload_json FROM m4_payloads WHERE event_id = ?", (event_id,))
             row = cursor.fetchone()
@@ -350,7 +351,7 @@ class M3Database:
                 conn.execute("INSERT OR REPLACE INTO identity_keys (identity_id, public_key_pem, is_revoked) VALUES (?, ?, 0)", 
                              (identity_id, public_key_pem))
 
-    def get_public_key(self, identity_id: str) -> Optional[str]:
+    def get_public_key(self, identity_id: str) -> str | None:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT public_key_pem, is_revoked FROM identity_keys WHERE identity_id = ?", (identity_id,))
             row = cursor.fetchone()
@@ -361,7 +362,7 @@ class M3Database:
             return None
 
     # --- AI Jobs ---
-    def save_ai_job(self, job_id: str, status: str, facts: Dict[str, Any], created_at: str, conn: Optional[sqlite3.Connection] = None):
+    def save_ai_job(self, job_id: str, status: str, facts: dict[str, Any], created_at: str, conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute("INSERT OR REPLACE INTO ai_jobs (job_id, status, facts_json, created_at) VALUES (?, ?, ?, ?)",
                       (job_id, status, json.dumps(facts), created_at))
@@ -372,7 +373,7 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def update_ai_job_status(self, job_id: str, status: str, completed_at: Optional[str] = None):
+    def update_ai_job_status(self, job_id: str, status: str, completed_at: str | None = None):
         with closing(self.get_connection()) as conn:
             with conn:
                 if completed_at:
@@ -380,7 +381,7 @@ class M3Database:
                 else:
                     conn.execute("UPDATE ai_jobs SET status = ? WHERE job_id = ?", (status, job_id))
 
-    def get_pending_ai_jobs(self) -> List[Dict[str, Any]]:
+    def get_pending_ai_jobs(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT job_id, facts_json, created_at FROM ai_jobs WHERE status = 'PENDING'")
             return [
@@ -400,7 +401,7 @@ class M3Database:
                              (action, target, reason, timestamp))
 
     # --- Replay Guard ---
-    def save_replay_guard(self, event_id: str, nonce: str, timestamp: str, user_id: str, leaf_id: str, version: Optional[int], conn: Optional[sqlite3.Connection] = None):
+    def save_replay_guard(self, event_id: str, nonce: str, timestamp: str, user_id: str, leaf_id: str, version: int | None, conn: sqlite3.Connection | None = None):
         def _execute(c):
             c.execute("INSERT OR REPLACE INTO replay_guard_events (event_id, timestamp) VALUES (?, ?)", (event_id, timestamp))
             c.execute("INSERT OR REPLACE INTO replay_guard_nonces (nonce, timestamp) VALUES (?, ?)", (nonce, timestamp))
@@ -413,7 +414,7 @@ class M3Database:
                 with c:
                     _execute(c)
 
-    def delete_expired_replay_guard(self, expired_events: List[str], expired_nonces: List[str], conn: Optional[sqlite3.Connection] = None):
+    def delete_expired_replay_guard(self, expired_events: list[str], expired_nonces: list[str], conn: sqlite3.Connection | None = None):
         def _execute(c):
             for eid in expired_events:
                 c.execute("DELETE FROM replay_guard_events WHERE event_id = ?", (eid,))
@@ -427,7 +428,7 @@ class M3Database:
                     _execute(c)
 
     # --- Pending Uploads (S3 retry queue) ---
-    def enqueue_pending_upload(self, op: str, meta: Dict[str, Any]) -> int:
+    def enqueue_pending_upload(self, op: str, meta: dict[str, Any]) -> int:
         from datetime import datetime, timezone
         created_at = datetime.now(timezone.utc).isoformat()
         with closing(self.get_connection()) as conn:
@@ -438,7 +439,7 @@ class M3Database:
                 )
                 return cursor.lastrowid
 
-    def get_pending_uploads(self) -> List[Dict[str, Any]]:
+    def get_pending_uploads(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute(
                 "SELECT upload_id, op, meta_json, attempts FROM pending_uploads ORDER BY upload_id ASC"
@@ -474,7 +475,7 @@ class M3Database:
                     (event_id, model_label, ts)
                 )
 
-    def get_review_queue(self, unlabelled_only: bool = False) -> List[Dict[str, Any]]:
+    def get_review_queue(self, unlabelled_only: bool = False) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             if unlabelled_only:
                 cursor = conn.execute(
@@ -498,7 +499,7 @@ class M3Database:
                 )
 
     # --- Model Registry ---
-    def register_model(self, version: str, metrics: Dict[str, Any], sha256: str) -> None:
+    def register_model(self, version: str, metrics: dict[str, Any], sha256: str) -> None:
         from datetime import datetime, timezone
         promoted_at = datetime.now(timezone.utc).isoformat()
         with closing(self.get_connection()) as conn:
@@ -509,7 +510,7 @@ class M3Database:
                     (version, json.dumps(metrics), sha256, promoted_at)
                 )
 
-    def get_model_registry(self) -> List[Dict[str, Any]]:
+    def get_model_registry(self) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute(
                 "SELECT version, metrics_json, sha256, promoted_at, is_active FROM model_registry ORDER BY promoted_at DESC"
@@ -530,7 +531,7 @@ class M3Database:
                 return True
 
     # --- Daily Summaries ---
-    def save_daily_summary(self, date: str, summary: Dict[str, Any]) -> None:
+    def save_daily_summary(self, date: str, summary: dict[str, Any]) -> None:
         from datetime import datetime, timezone
         created_at = datetime.now(timezone.utc).isoformat()
         with closing(self.get_connection()) as conn:
@@ -540,13 +541,13 @@ class M3Database:
                     (date, json.dumps(summary), created_at)
                 )
 
-    def get_daily_summary(self, date: str) -> Optional[Dict[str, Any]]:
+    def get_daily_summary(self, date: str) -> dict[str, Any] | None:
         with closing(self.get_connection()) as conn:
             cursor = conn.execute("SELECT summary_json FROM daily_summaries WHERE date = ?", (date,))
             row = cursor.fetchone()
             return json.loads(row[0]) if row else None
 
-    def list_daily_summaries(self, from_date: str = None, to_date: str = None) -> List[Dict[str, Any]]:
+    def list_daily_summaries(self, from_date: str | None = None, to_date: str | None = None) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             if from_date and to_date:
                 cursor = conn.execute(
@@ -562,7 +563,7 @@ class M3Database:
 
     # --- Alerts ---
     def save_alert(self, alert_id: str, alert_type: str, severity: str,
-                   details: Dict[str, Any], ai_explanation: str = None) -> None:
+                   details: dict[str, Any], ai_explanation: str | None = None) -> None:
         from datetime import datetime, timezone
         created_at = datetime.now(timezone.utc).isoformat()
         with closing(self.get_connection()) as conn:
@@ -572,7 +573,7 @@ class M3Database:
                     (alert_id, alert_type, severity, json.dumps(details), ai_explanation, created_at)
                 )
 
-    def get_alerts(self, unresolved_only: bool = False) -> List[Dict[str, Any]]:
+    def get_alerts(self, unresolved_only: bool = False) -> list[dict[str, Any]]:
         with closing(self.get_connection()) as conn:
             if unresolved_only:
                 cursor = conn.execute(

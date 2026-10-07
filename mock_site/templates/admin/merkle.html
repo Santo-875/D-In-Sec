@@ -1,0 +1,715 @@
+{% extends "admin/base_admin.html" %}
+{% block title %}Cryptographic Merkle Tree - D-In-Sec Admin{% endblock %}
+{% block page_title %}Cryptographic Merkle Tree{% endblock %}
+
+{% block content %}
+<style>
+    .merkle-dashboard {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .merkle-header-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 24px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        box-shadow: var(--shadow);
+    }
+
+    .root-display-group {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .root-label {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+    }
+
+    .root-hash-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        color: var(--primary);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        position: relative;
+    }
+
+    .root-hash-badge:hover {
+        border-color: var(--primary);
+        background: var(--surface);
+    }
+
+    .root-hash-badge .copy-icon {
+        width: 14px;
+        height: 14px;
+        stroke: var(--muted);
+    }
+
+    .badge-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        background: var(--surface2);
+        color: var(--muted);
+    }
+
+    .badge-status.live {
+        background: rgba(63, 143, 107, 0.12);
+        color: var(--success);
+    }
+
+    .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        display: inline-block;
+        animation: livePulse 2s infinite ease-in-out;
+    }
+
+    @keyframes livePulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .change-alert-badge {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        background: rgba(200, 120, 90, 0.15);
+        color: var(--accent);
+        border: 1px solid rgba(200, 120, 90, 0.3);
+        animation: fadeInOut 2.5s forwards ease;
+    }
+
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-4px); }
+        15% { opacity: 1; transform: translateY(0); }
+        85% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-4px); }
+    }
+
+    /* History Timeline */
+    .merkle-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+    }
+
+    .panel-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .timeline-container {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+    }
+
+    .timeline-item {
+        flex: 0 0 auto;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 14px;
+        min-width: 200px;
+        font-size: 12px;
+    }
+
+    .timeline-time {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+    }
+
+    .timeline-event {
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 4px;
+    }
+
+    .timeline-hash {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 11px;
+        color: var(--primary);
+    }
+
+    /* Visual Tree View */
+    .tree-stage {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        min-height: 480px;
+        position: relative;
+        overflow: auto;
+    }
+
+    .tree-root-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 30px;
+    }
+
+    .node-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 14px;
+        box-shadow: var(--shadow);
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .node-card.master-node {
+        border-color: var(--primary);
+        background: var(--surface2);
+        text-align: center;
+        min-width: 240px;
+    }
+
+    .node-card.subroot-node {
+        border-left: 4px solid var(--primary);
+        cursor: pointer;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .node-card.subroot-node:hover {
+        border-color: var(--primary);
+        background: var(--surface2);
+    }
+
+    .node-card.leaf-node {
+        border-left: 3px solid var(--accent);
+        font-size: 12px;
+        padding: 8px 12px;
+        background: var(--surface);
+    }
+
+    .node-card.leaf-node:hover {
+        border-color: var(--accent);
+        box-shadow: var(--shadow-md);
+    }
+
+    /* Diff Pulse Animation (1.5s) */
+    .diff-highlight {
+        animation: diffPulse 1.5s ease-out;
+    }
+
+    @keyframes diffPulse {
+        0% {
+            box-shadow: 0 0 0 4px rgba(200, 120, 90, 0.6);
+            background-color: rgba(200, 120, 90, 0.15);
+            border-color: var(--accent);
+        }
+        50% {
+            box-shadow: 0 0 0 8px rgba(200, 120, 90, 0.3);
+            background-color: rgba(200, 120, 90, 0.1);
+        }
+        100% {
+            box-shadow: var(--shadow);
+            background-color: var(--surface);
+            border-color: var(--border);
+        }
+    }
+
+    .users-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .user-branch {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        overflow: hidden;
+        transition: border-color 0.15s ease;
+    }
+
+    .user-branch.expanded {
+        border-color: var(--primary);
+    }
+
+    .leaves-container {
+        display: none;
+        padding: 16px;
+        background: var(--surface2);
+        border-top: 1px solid var(--border);
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+    }
+
+    .user-branch.expanded .leaves-container {
+        display: grid;
+    }
+
+    .subroot-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .toggle-arrow {
+        width: 16px;
+        height: 16px;
+        transition: transform 0.2s ease;
+        stroke: var(--muted);
+    }
+
+    .user-branch.expanded .toggle-arrow {
+        transform: rotate(90deg);
+        stroke: var(--primary);
+    }
+
+    .badge-count {
+        background: var(--surface2);
+        color: var(--muted);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .custom-tooltip {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1F2A37;
+        color: #F9FAFB;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+        z-index: 50;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    }
+
+    .custom-tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border-width: 4px;
+        border-style: solid;
+        border-color: #1F2A37 transparent transparent transparent;
+    }
+
+    .node-card:hover .custom-tooltip {
+        opacity: 1;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--muted);
+    }
+
+    .cap-banner {
+        text-align: center;
+        margin-top: 16px;
+        padding: 12px;
+        background: var(--surface2);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--muted);
+    }
+</style>
+
+<div class="merkle-dashboard">
+    <!-- Top Status Card -->
+    <div class="merkle-header-card">
+        <div class="root-display-group">
+            <span class="root-label">Master Root:</span>
+            <div id="master-root-badge" class="root-hash-badge" onclick="copyMasterRoot()" title="Click to copy full SHA-256 hash">
+                <span id="master-root-display">Loading...</span>
+                <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <div id="copy-tooltip" class="custom-tooltip">Copied to clipboard!</div>
+            </div>
+            <div id="root-change-badge" class="change-alert-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                Root changed
+            </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div id="live-indicator" class="badge-status live">
+                <span class="pulse-dot"></span>
+                <span>Live (5s)</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="fetchMerkleData(true)">Refresh Now</button>
+        </div>
+    </div>
+
+    <!-- Error/Notice Banner -->
+    <div id="merkle-error-banner" style="display: none; background: rgba(194, 77, 77, 0.1); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; color: var(--danger); font-size: 13px;">
+        <strong>Warning:</strong> <span id="error-message">M3 sidecar unreachable</span>
+    </div>
+
+    <!-- Root History Timeline -->
+    <div class="merkle-panel">
+        <div class="panel-title">
+            <span>Root History Timeline (Last 10 Changes)</span>
+            <span id="history-count" style="font-size: 12px; color: var(--muted); font-weight: normal;">0 events</span>
+        </div>
+        <div id="timeline-container" class="timeline-container">
+            <div style="color: var(--muted); font-size: 12px; padding: 10px;">Loading history...</div>
+        </div>
+    </div>
+
+    <!-- Interactive Merkle Tree Visualization -->
+    <div class="tree-stage">
+        <div class="tree-root-box">
+            <div class="root-label" style="margin-bottom: 6px;">Master Root Node</div>
+            <div id="master-node" class="node-card master-node">
+                <div style="font-weight: 700; color: var(--text); font-size: 14px;">Master Merkle Root</div>
+                <div id="master-node-hash" style="font-family: ui-monospace, monospace; font-size: 12px; color: var(--primary); margin-top: 4px;">-</div>
+            </div>
+            <svg width="2" height="30" style="margin-top: 8px;">
+                <line x1="1" y1="0" x2="1" y2="30" stroke="var(--border)" stroke-width="2" stroke-dasharray="4 2"/>
+            </svg>
+        </div>
+
+        <!-- Users and Leaves Container -->
+        <div id="users-container" class="users-grid">
+            <div class="empty-state">Loading Merkle tree state...</div>
+        </div>
+
+        <div id="cap-notice" class="cap-banner" style="display:none;">
+            <span id="cap-text">Showing 200 nodes.</span>
+            <button class="btn btn-secondary btn-sm" style="margin-left: 8px;" onclick="renderAllNodes()">Show more</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentMasterRoot = null;
+    let fullMasterRoot = "";
+    let previousTreeState = null;
+    let pollInterval = null;
+    let showAllNodes = false;
+    let cachedData = null;
+
+    function copyMasterRoot() {
+        if (!fullMasterRoot) return;
+        navigator.clipboard.writeText(fullMasterRoot).then(() => {
+            const tip = document.getElementById('copy-tooltip');
+            tip.style.opacity = '1';
+            setTimeout(() => { tip.style.opacity = '0'; }, 1500);
+        }).catch(err => {
+            console.error('Copy failed:', err);
+        });
+    }
+
+    function toggleUserBranch(element) {
+        const branch = element.closest('.user-branch');
+        if (branch) {
+            branch.classList.toggle('expanded');
+        }
+    }
+
+    function formatHash(hash, length = 12) {
+        if (!hash) return "null";
+        return hash.length > length ? hash.substring(0, length) + '...' : hash;
+    }
+
+    function renderTimeline(historyList) {
+        const container = document.getElementById('timeline-container');
+        const countSpan = document.getElementById('history-count');
+        if (!historyList || historyList.length === 0) {
+            container.innerHTML = '<div style="color: var(--muted); font-size: 12px; padding: 10px;">No root changes recorded.</div>';
+            countSpan.textContent = '0 events';
+            return;
+        }
+
+        const recent = historyList.slice(0, 10);
+        countSpan.textContent = `${recent.length} recent change(s)`;
+        
+        let html = '';
+        recent.forEach((item) => {
+            const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'N/A';
+            const eventStr = item.event || 'ROOT_UPDATE';
+            const hash = item.master_root ? formatHash(item.master_root, 10) : 'N/A';
+            const actor = item.actor || 'system';
+
+            html += `
+                <div class="timeline-item">
+                    <div class="timeline-time">${dateStr} &bull; ${actor}</div>
+                    <div class="timeline-event">${eventStr}</div>
+                    <div class="timeline-hash" title="${item.master_root || ''}">${hash}</div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    function renderTree(data, highlightDiff = false) {
+        const usersContainer = document.getElementById('users-container');
+        const capNotice = document.getElementById('cap-notice');
+        const capText = document.getElementById('cap-text');
+
+        if (!data || !data.users || data.users.length === 0) {
+            usersContainer.innerHTML = '<div class="empty-state">Merkle Tree is empty. No user leaves registered yet.</div>';
+            capNotice.style.display = 'none';
+            return;
+        }
+
+        const users = data.users;
+        const NODE_CAP = 200;
+        let totalNodesCount = 1; // Master node
+        users.forEach(u => {
+            totalNodesCount += 1 + (u.leaves ? u.leaves.length : 0);
+        });
+
+        const shouldCap = !showAllNodes && totalNodesCount > NODE_CAP;
+        if (shouldCap) {
+            capText.textContent = `Display capped at 200 of ${totalNodesCount} nodes.`;
+            capNotice.style.display = 'block';
+        } else {
+            capNotice.style.display = 'none';
+        }
+
+        // Build existing expanded state map so polling doesn't collapse user's view
+        const expandedMap = {};
+        document.querySelectorAll('.user-branch').forEach(b => {
+            const uid = b.getAttribute('data-userid');
+            if (uid && b.classList.contains('expanded')) {
+                expandedMap[uid] = true;
+            }
+        });
+
+        // Compute diffs if highlightDiff is true
+        const changedUsers = new Set();
+        const changedLeaves = new Set();
+        if (highlightDiff && previousTreeState && previousTreeState.users) {
+            const prevUserMap = {};
+            previousTreeState.users.forEach(u => { prevUserMap[u.user_id] = u; });
+
+            users.forEach(u => {
+                const prevU = prevUserMap[u.user_id];
+                if (!prevU || prevU.subroot_hash !== u.subroot_hash) {
+                    changedUsers.add(u.user_id);
+                }
+                const prevLeafMap = {};
+                if (prevU && prevU.leaves) {
+                    prevU.leaves.forEach(l => { prevLeafMap[l.leaf_id] = l.combined_hash; });
+                }
+                if (u.leaves) {
+                    u.leaves.forEach(l => {
+                        if (!prevLeafMap[l.leaf_id] || prevLeafMap[l.leaf_id] !== l.combined_hash) {
+                            changedLeaves.add(l.leaf_id);
+                        }
+                    });
+                }
+            });
+        }
+
+        let renderedCount = 1;
+        let html = '';
+
+        for (const user of users) {
+            if (shouldCap && renderedCount >= NODE_CAP) break;
+            renderedCount += 1;
+
+            const isUserDiff = changedUsers.has(user.user_id);
+            const isExpanded = expandedMap[user.user_id] || false;
+            const diffClass = isUserDiff ? 'diff-highlight' : '';
+
+            let leavesHtml = '';
+            if (user.leaves && user.leaves.length > 0) {
+                for (const leaf of user.leaves) {
+                    if (shouldCap && renderedCount >= NODE_CAP) break;
+                    renderedCount += 1;
+
+                    const isLeafDiff = changedLeaves.has(leaf.leaf_id);
+                    const leafDiffClass = isLeafDiff ? 'diff-highlight' : '';
+                    const leafHashShort = formatHash(leaf.combined_hash, 10);
+                    const fullLeafHash = leaf.combined_hash || '';
+                    const ts = leaf.timestamp ? new Date(leaf.timestamp).toLocaleString() : 'N/A';
+                    const ver = leaf.version !== undefined ? leaf.version : 1;
+
+                    leavesHtml += `
+                        <div class="node-card leaf-node ${leafDiffClass}">
+                            <div style="font-weight:600; color:var(--text);">${leaf.leaf_id}</div>
+                            <div style="font-family:ui-monospace, monospace; color:var(--accent); font-size:11px; margin-top:2px;">${leafHashShort}</div>
+                            <div class="custom-tooltip">
+                                Version: ${ver}<br>
+                                Time: ${ts}<br>
+                                Hash: ${fullLeafHash}
+                            </div>
+                        </div>
+                    `;
+                }
+            } else {
+                leavesHtml = '<div style="color:var(--muted); font-size:12px; grid-column: 1/-1;">No leaf nodes for this user.</div>';
+            }
+
+            html += `
+                <div class="user-branch ${isExpanded ? 'expanded' : ''}" data-userid="${user.user_id}">
+                    <div class="node-card subroot-node ${diffClass}" onclick="toggleUserBranch(this)">
+                        <div class="subroot-info">
+                            <svg class="toggle-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                            <div>
+                                <span style="font-weight: 600; color: var(--text);">${user.user_id}</span>
+                                <span style="font-family:ui-monospace, monospace; font-size: 11px; color: var(--muted); margin-left: 8px;">
+                                    ${formatHash(user.subroot_hash, 10)}
+                                </span>
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span class="badge-count">${user.leaf_count || (user.leaves ? user.leaves.length : 0)} leaves</span>
+                        </div>
+                    </div>
+                    <div class="leaves-container">
+                        ${leavesHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        usersContainer.innerHTML = html;
+    }
+
+    function renderAllNodes() {
+        showAllNodes = true;
+        if (cachedData) {
+            renderTree(cachedData, false);
+        }
+    }
+
+    function triggerRootChangedAnimation() {
+        const badge = document.getElementById('root-change-badge');
+        badge.style.display = 'inline-flex';
+        // Restart animation
+        badge.style.animation = 'none';
+        badge.offsetHeight; /* trigger reflow */
+        badge.style.animation = 'fadeInOut 2.5s forwards ease';
+        setTimeout(() => { badge.style.display = 'none'; }, 2600);
+
+        // Highlight master node
+        const masterNode = document.getElementById('master-node');
+        masterNode.classList.remove('diff-highlight');
+        masterNode.offsetHeight;
+        masterNode.classList.add('diff-highlight');
+        setTimeout(() => { masterNode.classList.remove('diff-highlight'); }, 1500);
+    }
+
+    async function fetchMerkleData(manual = false) {
+        const errorBanner = document.getElementById('merkle-error-banner');
+        const errorMessage = document.getElementById('error-message');
+        const masterDisplay = document.getElementById('master-root-display');
+        const masterNodeHash = document.getElementById('master-node-hash');
+        const liveIndicator = document.getElementById('live-indicator');
+
+        try {
+            const resp = await fetch('/admin/merkle/data');
+            if (!resp.ok) {
+                throw new Error(`HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+
+            if (data.error) {
+                errorBanner.style.display = 'block';
+                errorMessage.textContent = data.error;
+                liveIndicator.className = 'badge-status';
+                liveIndicator.innerHTML = '<span style="color:var(--danger)">Offline</span>';
+                return;
+            }
+
+            errorBanner.style.display = 'none';
+            liveIndicator.className = 'badge-status live';
+            liveIndicator.innerHTML = '<span class="pulse-dot"></span><span>Live (5s)</span>';
+
+            const newRoot = data.master_root || "null";
+            fullMasterRoot = newRoot;
+            masterDisplay.textContent = formatHash(newRoot, 12);
+            masterNodeHash.textContent = formatHash(newRoot, 16);
+
+            let rootChanged = false;
+            if (currentMasterRoot !== null && currentMasterRoot !== newRoot) {
+                rootChanged = true;
+                triggerRootChangedAnimation();
+            }
+
+            renderTimeline(data.root_history || []);
+            renderTree(data, rootChanged);
+
+            previousTreeState = data;
+            cachedData = data;
+            currentMasterRoot = newRoot;
+        } catch (err) {
+            console.warn('Merkle polling error:', err);
+            errorBanner.style.display = 'block';
+            errorMessage.textContent = 'M3 sidecar unreachable or network failure.';
+            liveIndicator.className = 'badge-status';
+            liveIndicator.innerHTML = '<span style="color:var(--danger)">Unreachable</span>';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchMerkleData();
+        pollInterval = setInterval(() => { fetchMerkleData(); }, 5000);
+    });
+
+    window.addEventListener('beforeunload', () => {
+        if (pollInterval) clearInterval(pollInterval);
+    });
+</script>
+{% endblock %}

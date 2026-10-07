@@ -1,10 +1,14 @@
-import unittest
 import os
-import shutil
+import unittest
+
+from m3.crypto_signer import (
+    PublicKeyRegistry,
+    generate_rsa_key_pair,
+)
 from m3.database import M3Database
-from m3.crypto_signer import PublicKeyRegistry, generate_rsa_key_pair, get_public_key_fingerprint
-from m3.merkle_tree import HierarchicalMerkleTree
 from m3.freeze_manager import FreezeManager
+from m3.merkle_tree import HierarchicalMerkleTree
+
 
 class TestM3Persistence(unittest.TestCase):
     def setUp(self):
@@ -55,7 +59,7 @@ class TestM3Persistence(unittest.TestCase):
         self.assertTrue(frozen_master)
         self.assertIn("incident 42", reason_master)
         
-        frozen_sub, reason_sub = fmgr2.is_frozen("user_99")
+        frozen_sub, _reason_sub = fmgr2.is_frozen("user_99")
         self.assertTrue(frozen_sub)
         self.assertEqual(fmgr2._subtree_freezes["user_99"]["reason"], "fraud")
 

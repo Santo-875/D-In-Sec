@@ -3,62 +3,284 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
+<style>
+    .stat-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+    .stat-icon {
+        width: 28px;
+        height: 28px;
+        padding: 5px;
+        border-radius: 6px;
+        background: var(--surface2);
+        color: var(--primary);
+    }
+    .integrity-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow);
+    }
+    .integrity-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        margin-top: 16px;
+    }
+    .integrity-item {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+    }
+    .integrity-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+    .integrity-value {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        word-break: break-all;
+    }
+    .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .status-chip.success {
+        background: rgba(63, 143, 107, 0.15);
+        color: var(--success);
+    }
+    .status-chip.danger {
+        background: rgba(194, 77, 77, 0.15);
+        color: var(--danger);
+    }
+    .status-chip.warn {
+        background: rgba(201, 154, 46, 0.15);
+        color: var(--warn);
+    }
+    .status-chip.info {
+        background: rgba(63, 110, 168, 0.15);
+        color: var(--primary);
+    }
+    .audit-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .audit-table th {
+        text-align: left;
+        padding: 10px 14px;
+        background: var(--surface2);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--border);
+    }
+    .audit-table td {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        color: var(--ink);
+    }
+    .audit-table tr:last-child td {
+        border-bottom: none;
+    }
+</style>
+
 <div class="section-header" style="margin-bottom: 20px;">
     <div>
         <div class="section-title">System Overview</div>
         <div class="section-sub">Real-time statistics & security compliance metrics</div>
     </div>
     <a href="{{ url_for('admin.compliance_export') }}" class="btn btn-primary" style="text-decoration:none">
-         Export DPDP Compliance Report
+        Export DPDP Compliance Report
     </a>
 </div>
 
-<div class="stat-grid">
+<!-- 6 Stat Cards with Subtle Inline SVG Icons -->
+<div class="stat-grid" style="margin-bottom: 24px;">
     <div class="stat-card">
-        <div class="stat-val">{{ total_users }}</div>
-        <div class="stat-label">Total Users</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Total Users</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--ink);">{{ total_users }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-val" style="color:#22c55e">{{ active_users }}</div>
-        <div class="stat-label">Active Users</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Active Users</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--success);">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--success);">{{ active_users }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-val" style="color:#f59e0b">{{ pending_docs }}</div>
-        <div class="stat-label">Pending Documents</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Pending Docs</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--warn);">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--warn);">{{ pending_docs }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-val" style="color:#818cf8">{{ verified_docs }}</div>
-        <div class="stat-label">Verified Documents</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Verified Docs</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--primary);">{{ verified_docs }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-val" style="color:#38bdf8">{{ pending_dsars }}</div>
-        <div class="stat-label">Pending DSARs</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Pending DSARs</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent);">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--accent);">{{ pending_dsars }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-val">{{ total_fields }}</div>
-        <div class="stat-label">Schema Fields</div>
+        <div class="stat-card-header">
+            <div class="stat-label">Schema Fields</div>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--muted);">
+                <polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>
+            </svg>
+        </div>
+        <div class="stat-val" style="color: var(--ink);">{{ total_fields }}</div>
     </div>
 </div>
 
+<!-- Card-style Integrity Status Panel -->
+<div class="integrity-panel">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+        <div>
+            <div style="font-size: 15px; font-weight: 700; color: var(--ink);">Cryptographic Integrity Status</div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">M3 microservice sidecar health and Merkle tree root anchors</div>
+        </div>
+        <a href="{{ url_for('admin.merkle') }}" class="btn btn-secondary btn-sm" style="text-decoration:none;">
+            View Merkle Tree &rarr;
+        </a>
+    </div>
+
+    <div class="integrity-grid">
+        <div class="integrity-item">
+            <div class="integrity-label">M3 Sidecar Status</div>
+            <div class="integrity-value" style="display: flex; align-items: center; gap: 8px;">
+                {% if cloud_status and cloud_status.status in ['READY', 'OK', 'HEALTHY'] %}
+                    <span class="status-chip success">
+                        <span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor;"></span>
+                        {{ cloud_status.status }}
+                    </span>
+                {% elif cloud_status and cloud_status.status == 'NOT CONFIGURED' %}
+                    <span class="status-chip warn">{{ cloud_status.status }}</span>
+                {% else %}
+                    <span class="status-chip danger">{{ cloud_status.status if cloud_status else 'UNREACHABLE' }}</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="integrity-item">
+            <div class="integrity-label">Master Merkle Root</div>
+            <div class="integrity-value" style="font-family: ui-monospace, monospace; font-size: 12px; color: var(--primary);">
+                {% if cloud_status and cloud_status.master_root %}
+                    {{ cloud_status.master_root[:16] }}...
+                {% else %}
+                    <span style="color: var(--muted); font-weight: normal;">Not computed</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="integrity-item">
+            <div class="integrity-label">Last Storage Anchor</div>
+            <div class="integrity-value" style="font-size: 12px;">
+                {% if cloud_status and cloud_status.last_anchor %}
+                    <span style="color: var(--success); font-weight: 600;">Anchored</span>
+                    <span style="color: var(--muted); font-size: 11px;">({{ cloud_status.last_anchor[:12] if cloud_status.last_anchor is string else 'Active' }})</span>
+                {% else %}
+                    <span style="color: var(--muted); font-weight: normal;">None / Pending</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="integrity-item">
+            <div class="integrity-label">Storage Backend / Signer</div>
+            <div class="integrity-value" style="font-size: 12px; color: var(--muted);">
+                {{ cloud_status.backend if cloud_status else 'local' }} / {{ cloud_status.signer if cloud_status else 'local' }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Audit Events in Table Format with Colored Level Chips -->
 <div class="section-header">
     <div>
         <div class="section-title">Recent Audit Events</div>
-        <div class="section-sub">Last 20 entries from system.log - no raw PII</div>
+        <div class="section-sub">Last 20 entries from system.log &bull; Zero raw PII</div>
     </div>
-    <a href="{{ url_for('admin.audit') }}" class="btn btn-primary btn-sm">View All Logs</a>
+    <a href="{{ url_for('admin.audit') }}" class="btn btn-primary btn-sm" style="text-decoration:none;">View All Logs</a>
 </div>
 
-<div class="log-viewer">
-    {% for line in audit_lines %}
-        <div class="log-line
-            {% if 'VAULT_FAIL' in line or 'FAIL' in line or 'ERROR' in line %}log-line-fail
-            {% elif 'WARNING' in line %}log-line-warn
-            {% elif 'VAULT_ACCESS' in line or 'VAULT_STORE' in line %}log-line-vault
-            {% elif 'DSAR' in line %}log-line-dsar
-            {% elif 'success' in line or 'SUCCESS' in line %}log-line-success
-            {% endif %}">{{ line }}</div>
-    {% else %}
-        <div style="color:#4b5563">No log entries yet.</div>
-    {% endfor %}
+<div class="admin-table-wrap">
+    <table class="audit-table">
+        <thead>
+            <tr>
+                <th style="width: 170px;">Timestamp</th>
+                <th style="width: 110px;">Level</th>
+                <th>Event & Context</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for line in audit_lines %}
+                {% set level = 'info' %}
+                {% if 'FAIL' in line or 'ERROR' in line or 'UNAUTHORIZED' in line %}
+                    {% set level = 'danger' %}
+                {% elif 'WARN' in line %}
+                    {% set level = 'warn' %}
+                {% elif 'SUCCESS' in line %}
+                    {% set level = 'success' %}
+                {% endif %}
+                <tr>
+                    <td style="font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); white-space: nowrap;">
+                        {{ line[:19] if line|length >= 19 else '-' }}
+                    </td>
+                    <td>
+                        <span class="status-chip {{ level }}">
+                            {{ level|upper }}
+                        </span>
+                    </td>
+                    <td style="font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all;">
+                        {{ line[20:] if line|length > 20 else line }}
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center; color: var(--muted); padding: 24px;">
+                        No audit events recorded yet.
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% endblock %}

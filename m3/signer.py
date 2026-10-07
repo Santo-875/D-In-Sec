@@ -13,13 +13,11 @@ Env:
     M3_SIGNING_PRIVATE_KEY = <PEM> (required for local backend)
 """
 
-import os
-import base64
 import hashlib
-import json
 import logging
+import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("m3.signer")
 
@@ -28,7 +26,7 @@ class Signer(ABC):
     """Uniform signing interface. Implementations must never log private key material."""
 
     @abstractmethod
-    def sign(self, payload: Dict[str, Any]) -> str:
+    def sign(self, payload: dict[str, Any]) -> str:
         """
         Sign a dictionary payload. Returns hex-encoded signature.
         Raises RuntimeError if signing fails.
@@ -55,7 +53,7 @@ class LocalRSASigner(Signer):
     Private key is kept in memory only — never written to disk or logged.
     """
 
-    def __init__(self, private_key_pem: Optional[str] = None):
+    def __init__(self, private_key_pem: str | None = None):
         if private_key_pem is None:
             from m3.crypto_signer import load_private_key_from_env
             private_key_pem = load_private_key_from_env()
@@ -67,7 +65,7 @@ class LocalRSASigner(Signer):
         from m3.crypto_signer import get_public_key_from_private_pem
         self._public_key_pem = get_public_key_from_private_pem(private_key_pem)
 
-    def sign(self, payload: Dict[str, Any]) -> str:
+    def sign(self, payload: dict[str, Any]) -> str:
         from m3.crypto_signer import sign_payload
         return sign_payload(self._private_key_pem, payload)
 
@@ -91,7 +89,7 @@ class KMSSigner(Signer):
         import boto3
         self._key_id = key_id
         self._kms = boto3.client("kms", region_name=region)
-        self._cached_public_key: Optional[str] = None
+        self._cached_public_key: str | None = None
 
     @property
     def public_key_pem(self) -> str:
@@ -102,7 +100,9 @@ class KMSSigner(Signer):
     def _fetch_public_key(self) -> str:
         """Fetch DER public key from KMS and convert to PEM."""
         from cryptography.hazmat.primitives.serialization import (
-            Encoding, PublicFormat, load_der_public_key
+            Encoding,
+            PublicFormat,
+            load_der_public_key,
         )
         resp = self._kms.get_public_key(KeyId=self._key_id)
         der_bytes = resp["PublicKey"]
@@ -112,14 +112,15 @@ class KMSSigner(Signer):
             format=PublicFormat.SubjectPublicKeyInfo
         ).decode("utf-8")
 
-    def sign(self, payload: Dict[str, Any]) -> str:
+    def sign(self, payload: dict[str, Any]) -> str:
         """
         Signs the canonical JSON of payload with KMS RSASSA_PSS_SHA_256.
         Returns a hex-encoded signature string.
         Private key never leaves KMS.
         """
-        from m3.crypto_signer import canonicalize_payload
         import hashlib as _hl
+
+        from m3.crypto_signer import canonicalize_payload
         message = canonicalize_payload(payload)
         # KMS requires raw message digest for SHA_256 signing
         digest = _hl.sha256(message).digest()

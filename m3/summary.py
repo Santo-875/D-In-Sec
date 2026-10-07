@@ -15,12 +15,12 @@ import argparse
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 __all__ = ["generate_daily_summary", "run_cli"]
 
 
-def generate_daily_summary(db, date: str) -> Dict[str, Any]:
+def generate_daily_summary(db, date: str) -> dict[str, Any]:
     """
     Build a masked-only daily aggregate for `date` (YYYY-MM-DD).
 
@@ -60,8 +60,8 @@ def generate_daily_summary(db, date: str) -> Dict[str, Any]:
     freeze_count = len(freeze_states)
 
     # Aggregate events
-    events_by_type: Dict[str, int] = {}
-    actor_counts: Dict[str, int] = {}
+    events_by_type: dict[str, int] = {}
+    actor_counts: dict[str, int] = {}
     root_hashes = []
 
     for e in day_events:
@@ -84,7 +84,7 @@ def generate_daily_summary(db, date: str) -> Dict[str, Any]:
         if e.get("timestamp", "")[:10] < cutoff
     )
 
-    summary: Dict[str, Any] = {
+    summary: dict[str, Any] = {
         "date": date,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "events_count": len(day_events),
@@ -126,7 +126,7 @@ def run_cli():
     args = parser.parse_args()
 
     from m3.database import M3Database
-    from m3.storage import get_storage_backend, DurableStorage
+    from m3.storage import DurableStorage, get_storage_backend
 
     db = M3Database(args.db)
 

@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 from functools import wraps
 from flask import (Blueprint, render_template, redirect, url_for,
-                   request, flash, abort)
+                   request, flash, abort, jsonify)
 from flask_login import login_required, current_user
 from models import db, User, Document, FieldSchema, DsarRequest, IncidentAlert
 from vault.service import vault_get_profile, vault_get_file
@@ -58,6 +58,9 @@ def dashboard():
     # Read last 20 log lines for audit widget
     audit_lines = _read_log_tail(20)
 
+    from routes.soc import fetch_cloud_status
+    cloud_status = fetch_cloud_status()
+
     logger.info(f"event=ADMIN_DASHBOARD_ACCESS admin_id={current_user.id}")
     return render_template('admin/dashboard.html',
                            total_users=total_users,
@@ -66,7 +69,25 @@ def dashboard():
                            verified_docs=verified_docs,
                            pending_dsars=pending_dsars,
                            total_fields=total_fields,
-                           audit_lines=audit_lines)
+                           audit_lines=audit_lines,
+                           cloud_status=cloud_status)
+
+
+@admin_bp.route('/merkle')
+@admin_required
+def merkle():
+    """Visualizes the hierarchical Merkle Tree live state."""
+    logger.info(f"event=ADMIN_MERKLE_VIEW admin_id={current_user.id}")
+    return render_template('admin/merkle.html')
+
+
+@admin_bp.route('/merkle/data')
+@admin_required
+def merkle_data():
+    """JSON proxy to M3 snapshot with a 3 s timeout."""
+    from routes.soc import fetch_tree_snapshot
+    res = fetch_tree_snapshot(timeout=3)
+    return jsonify(res)
 
 
 @admin_bp.route('/compliance/export')

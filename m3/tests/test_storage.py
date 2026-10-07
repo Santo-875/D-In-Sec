@@ -10,12 +10,8 @@ Tests:
   6. S3 down => UNVERIFIED and writes queued
 """
 
-import json
-import os
-import tempfile
-import threading
-import time
 import io
+import json
 from functools import wraps
 
 import pytest
@@ -23,7 +19,6 @@ import pytest
 boto3 = pytest.importorskip("boto3")
 
 try:
-    import moto
     from moto import mock_aws
     HAS_MOTO = True
 except ImportError:
@@ -46,12 +41,12 @@ except ImportError:
         def get_object(self, Bucket, Key):
             data = self.buckets.get(Bucket, {}).get(Key)
             if data is None:
-                raise Exception("NoSuchKey")
+                raise RuntimeError("NoSuchKey")
             return {"Body": io.BytesIO(data)}
 
         def head_bucket(self, Bucket):
             if Bucket not in self.buckets:
-                raise Exception("NoSuchBucket")
+                raise RuntimeError("NoSuchBucket")
             return {}
 
         def get_paginator(self, operation_name):
@@ -81,9 +76,8 @@ except ImportError:
                 boto3.client = orig_client
         return wrapper
 
-from m3.storage import S3Backend, LocalBackend, DurableStorage
 from m3.database import M3Database
-
+from m3.storage import DurableStorage, LocalBackend, S3Backend
 
 REGION = "us-east-1"
 BUCKET = "test-dinsec-bucket"
@@ -313,10 +307,12 @@ def test_api_put_log_and_anchor_called_after_commit(tmp_path, monkeypatch):
     POST /tree/update or /v1/events commits to SQLite first, then calls put_log.
     POST /v1/admin/anchor writes a signed checkpoint to S3 roots/ prefix.
     """
+    from datetime import datetime, timezone
+
     import boto3
+
     from m3.api import create_m3_app
     from m3.crypto_signer import generate_rsa_key_pair, sign_payload
-    from datetime import datetime, timezone
 
     s3 = boto3.client("s3", region_name=REGION)
     _make_bucket(s3)
@@ -383,10 +379,10 @@ def test_s3_outage_queued_and_unverified(tmp_path, monkeypatch):
     When S3 is unreachable, write operations still succeed (queued in pending_uploads),
     and verification returns UNVERIFIED (never crashes or false-positive VERIFIED).
     """
-    import boto3
+    from datetime import datetime, timezone
+
     from m3.api import create_m3_app
     from m3.crypto_signer import generate_rsa_key_pair, sign_payload
-    from datetime import datetime, timezone
     from m3.storage import StorageBackend
 
     db_path = str(tmp_path / "test_outage.db")
@@ -453,10 +449,12 @@ def test_full_db_rewrite_detected_via_s3_anchor(tmp_path, monkeypatch):
     Even if an attacker rewrites all DB rows to make it self-consistent,
     the S3 anchor detects the tamper and triggers automatic freeze.
     """
+    from datetime import datetime, timezone
+
     import boto3
+
     from m3.api import create_m3_app
     from m3.crypto_signer import generate_rsa_key_pair, sign_payload
-    from datetime import datetime, timezone
 
     s3 = boto3.client("s3", region_name=REGION)
     _make_bucket(s3)
@@ -514,10 +512,12 @@ def test_forged_anchor_rejected_by_signature(tmp_path, monkeypatch):
     If an anchor object in S3 has an invalid or forged signature,
     verification rejects it with status TAMPER.
     """
+    from datetime import datetime, timezone
+
     import boto3
+
     from m3.api import create_m3_app
     from m3.crypto_signer import generate_rsa_key_pair, sign_payload
-    from datetime import datetime, timezone
 
     s3 = boto3.client("s3", region_name=REGION)
     _make_bucket(s3)

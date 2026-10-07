@@ -26,9 +26,9 @@
         <tbody>
             {% for user in users %}
             <tr>
-                <td style="color:#64748b">{{ user.id }}</td>
+                <td style="color:var(--muted)">{{ user.id }}</td>
                 <td><strong>{{ user.username }}</strong></td>
-                <td style="color:#94a3b8">{{ user.email }}</td>
+                <td style="color:var(--muted)">{{ user.email }}</td>
                 <td>
                     {% if user.active %}
                         <span class="badge badge-green">Active</span>
@@ -36,12 +36,13 @@
                         <span class="badge badge-red">Suspended</span>
                     {% endif %}
                 </td>
-                <td style="font-family:monospace;font-size:11px;color:#64748b">
+                <td style="font-family:ui-monospace, monospace;font-size:11px;color:var(--muted)">
                     {% if user.profile_token %}{{ user.profile_token[:12] }}...{% else %}<em>None</em>{% endif %}
                 </td>
-                <td style="color:#64748b;font-size:12px">{{ user.created_at.strftime('%d %b %Y') }}</td>
+                <td style="color:var(--muted);font-size:12px">{{ user.created_at.strftime('%d %b %Y') }}</td>
                 <td>
                     <form method="POST" action="{{ url_for('admin.toggle_user', user_id=user.id) }}" style="display:inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm {{ 'btn-danger' if user.active else 'btn-success' }}">
                             {{ 'Suspend' if user.active else 'Activate' }}
                         </button>
@@ -52,14 +53,15 @@
                     </button>
                     <div id="reset-{{ user.id }}" style="display:none;margin-top:8px">
                         <form method="POST" action="{{ url_for('admin.reset_password', user_id=user.id) }}" style="display:flex;gap:8px;align-items:center">
-                            <input type="password" name="new_password" placeholder="New password" style="padding:6px 10px;border-radius:6px;border:1px solid #2e3247;background:#22263a;color:#e2e8f0;font-size:12px;width:160px">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="password" name="new_password" placeholder="New password" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-size:12px;width:160px">
                             <button type="submit" class="btn btn-sm btn-success">Set</button>
                         </form>
                     </div>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" style="text-align:center;color:#64748b;padding:40px">No users found.</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No users found.</td></tr>
             {% endfor %}
         </tbody>
     </table>

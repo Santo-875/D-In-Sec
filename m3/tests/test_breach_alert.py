@@ -2,20 +2,12 @@
 Unit and Integration tests for AI Breach Alert on Tamper Detection.
 """
 
-import os
 import sqlite3
-import json
-from pathlib import Path
 from datetime import datetime, timezone
-import pytest
 
-from m3.merkle_tree import HierarchicalMerkleTree, compute_hash
-from m3.breach_alert import (
-    generate_breach_alert,
-    deterministic_fallback_alert,
-    record_breach_alert_to_db
-)
 from m3.api import create_m3_app
+from m3.breach_alert import deterministic_fallback_alert, record_breach_alert_to_db
+from m3.merkle_tree import compute_hash
 
 
 def test_deterministic_fallback_alert_structure():

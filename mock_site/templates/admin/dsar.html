@@ -6,7 +6,7 @@
 <div class="section-header">
     <div>
         <div class="section-title">Data Subject Access / Erasure Requests</div>
-        <div class="section-sub">DPDP Act compliance. ERASURE is a 2-step process - admin approves → user selects fields → admin confirms deletion.</div>
+        <div class="section-sub">DPDP Act compliance. ERASURE is a 2-step process - admin approves &rarr; user selects fields &rarr; admin confirms deletion.</div>
     </div>
 </div>
 
@@ -23,8 +23,8 @@
             {% set req = row[0] %}
             {% set username = row[1] %}
             <tr>
-                <td style="color:#64748b">{{ req.id }}</td>
-                <td><strong>{{ username }}</strong><br><small style="color:#64748b">user_id={{ req.user_id }}</small></td>
+                <td style="color:var(--muted)">{{ req.id }}</td>
+                <td><strong>{{ username }}</strong><br><small style="color:var(--muted)">user_id={{ req.user_id }}</small></td>
                 <td>
                     {% if req.request_type == 'ERASURE' %}
                         <span class="badge badge-red">ERASURE</span>
@@ -37,32 +37,33 @@
                     {% elif req.status == 'denied' %}<span class="badge badge-red">Denied</span>
                     {% elif req.status == 'approved' %}<span class="badge badge-blue">Approved - Awaiting Field Selection</span>
                     {% elif req.status == 'fields_selected' %}<span class="badge badge-amber">Fields Selected - Final Review</span>
-                    {% elif req.status == 'expired' %}<span class="badge" style="background:#222;color:#64748b;border:1px solid #333">Expired (Session Ended)</span>
+                    {% elif req.status == 'expired' %}<span class="badge" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border)">Expired (Session Ended)</span>
                     {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
                 </td>
-                <td style="font-size:12px;color:#64748b">{{ req.requested_at.strftime('%d %b %Y, %H:%M') }}</td>
-                <td style="font-size:12px;color:#94a3b8">{{ req.admin_note or '-' }}</td>
+                <td style="font-size:12px;color:var(--muted)">{{ req.requested_at.strftime('%d %b %Y, %H:%M') }}</td>
+                <td style="font-size:12px;color:var(--muted)">{{ req.admin_note or '-' }}</td>
                 <td>
 
                     {# ── STEP 1: pending → approve or deny ── #}
                     {% if req.status == 'pending' %}
                     <button class="btn btn-sm btn-primary" onclick="document.getElementById('dsar-{{ req.id }}').style.display='block'">Review</button>
-                    <div id="dsar-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:#0f1117;border-radius:8px;border:1px solid #2e3247">
+                    <div id="dsar-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
                         {% if req.request_type == 'ERASURE' %}
-                        <p style="font-size:12px;color:#f59e0b;margin-bottom:10px">
+                        <p style="font-size:12px;color:var(--warn);margin-bottom:10px">
                              Approving this will send the user to select specific fields for erasure. A second admin confirmation is required before any data is deleted.
                         </p>
                         {% else %}
-                        <p style="font-size:12px;color:#818cf8;margin-bottom:10px">
+                        <p style="font-size:12px;color:var(--primary);margin-bottom:10px">
                              Approving this ACCESS request will make the user's data summary visible on their DSAR page.
                         </p>
                         {% endif %}
                         <form method="POST" action="{{ url_for('admin.dsar_resolve', req_id=req.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <textarea name="admin_note" placeholder="Admin note (optional)..." rows="2"
-                                style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
+                                style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--ink);border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success"> Approve</button>
-                                <button type="submit" name="action" value="deny" class="btn btn-sm btn-danger"> Deny</button>
+                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve</button>
+                                <button type="submit" name="action" value="deny" class="btn btn-sm btn-danger">Deny</button>
                             </div>
                         </form>
                     </div>
@@ -71,7 +72,7 @@
                     {% elif req.status == 'fields_selected' %}
                     {% set selected = req.selected_fields | from_json if req.selected_fields else [] %}
                     <div style="margin-bottom:10px">
-                        <div style="font-size:12px;color:#f59e0b;margin-bottom:6px">User selected for erasure:</div>
+                        <div style="font-size:12px;color:var(--warn);margin-bottom:6px">User selected for erasure:</div>
                         {% if 'all' in selected %}
                             <span class="badge badge-red">ALL DATA</span>
                         {% else %}
@@ -81,28 +82,29 @@
                         {% endif %}
                     </div>
                     <button class="btn btn-sm btn-danger" onclick="document.getElementById('final-{{ req.id }}').style.display='block'">Final Review</button>
-                    <div id="final-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:#0f1117;border-radius:8px;border:1px solid rgba(239,68,68,0.3)">
-                        <p style="font-size:12px;color:#f87171;margin-bottom:10px"> This is irreversible. The selected vault data will be permanently deleted.</p>
+                    <div id="final-{{ req.id }}" style="display:none;margin-top:10px;padding:14px;background:var(--surface2);border-radius:8px;border:1px solid var(--danger)">
+                        <p style="font-size:12px;color:var(--danger);margin-bottom:10px">This is irreversible. The selected vault data will be permanently deleted.</p>
                         <form method="POST" action="{{ url_for('admin.dsar_final_confirm', req_id=req.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <textarea name="admin_note" placeholder="Final note (optional)..." rows="2"
-                                style="width:100%;background:#22263a;border:1px solid #2e3247;color:#e2e8f0;border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
+                                style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--ink);border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
                             <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="confirm" class="btn btn-sm btn-danger"> Confirm Erasure</button>
+                                <button type="submit" name="action" value="confirm" class="btn btn-sm btn-danger">Confirm Erasure</button>
                                 <button type="submit" name="action" value="deny" class="btn btn-sm btn-primary">Cancel</button>
                             </div>
                         </form>
                     </div>
 
                     {% elif req.status == 'approved' %}
-                    <span style="font-size:12px;color:#818cf8"> Waiting for user to select fields…</span>
+                    <span style="font-size:12px;color:var(--primary)">Waiting for user to select fields&hellip;</span>
 
                     {% else %}
-                    <span style="font-size:12px;color:#4b5563">Resolved</span>
+                    <span style="font-size:12px;color:var(--muted)">Resolved</span>
                     {% endif %}
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" style="text-align:center;color:#64748b;padding:40px">No DSAR requests yet.</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No DSAR requests yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>

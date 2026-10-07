@@ -13,14 +13,16 @@ to both stdout and logs/system.log.
 
 import os
 import json
+import hmac
 import logging
+import secrets
 from dotenv import load_dotenv
 
 # Load .env from the root of the project
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 load_dotenv(dotenv_path=env_path)
 from logging.handlers import RotatingFileHandler
-from flask import Flask, redirect, url_for
+from flask import Flask, redirect, url_for, request, session, abort
 from flask_login import LoginManager
 from models import db, User
 from routes import register_blueprints
@@ -33,7 +35,14 @@ def create_app():
     # ── Configuration ───────────────────────────────────────────
     base_dir = os.path.abspath(os.path.dirname(__file__))
 
-    app.config['SECRET_KEY'] = 'dev-secret-key-change-in-production'
+    secret_key = os.environ.get('FLASK_SECRET_KEY')
+    generated_secret = not secret_key
+    if generated_secret:
+        # Random per-process key: sessions are invalidated on every restart.
+        secret_key = secrets.token_hex(32)
+    app.config['SECRET_KEY'] = secret_key
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(base_dir, 'instance', 'mock_site.db')}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['UPLOAD_FOLDER'] = os.path.join(base_dir, 'uploads')
@@ -61,6 +70,34 @@ def create_app():
 
     # ── Logging Setup ───────────────────────────────────────────
     setup_logging(app, base_dir)
+    if generated_secret:
+        logging.getLogger('mock_site').warning(
+            "event=CONFIG_WARNING FLASK_SECRET_KEY not set; using a random "
+            "per-process key (sessions will not survive a restart)."
+        )
+
+    # ── CSRF protection (session token, no extra dependency) ────
+    def csrf_token():
+        token = session.get('_csrf_token')
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session['_csrf_token'] = token
+        return token
+
+    app.jinja_env.globals['csrf_token'] = csrf_token
+
+    @app.before_request
+    def csrf_protect():
+        if request.method != 'POST' or not app.config.get('WTF_CSRF_ENABLED', True):
+            return None
+        sent = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token', '')
+        expected = session.get('_csrf_token', '')
+        if not sent or not expected or not hmac.compare_digest(sent, expected):
+            logging.getLogger('mock_site').warning(
+                f"event=CSRF_REJECTED path={request.path}"
+            )
+            abort(400, description='CSRF token missing or invalid.')
+        return None
 
     # ── Register Blueprints ─────────────────────────────────────
     register_blueprints(app)
@@ -69,10 +106,15 @@ def create_app():
     import json as _json
     app.jinja_env.filters['from_json'] = lambda s: _json.loads(s) if s else []
 
-    # ── Root redirect ───────────────────────────────────────────
+    # ── Root redirect & login alias ─────────────────────────────
     @app.route('/')
     def root():
         return redirect(url_for('auth.login'))
+
+    @app.route('/login', methods=['GET', 'POST'])
+    def login_alias():
+        from routes.auth import login as auth_login
+        return auth_login()
 
     return app
 

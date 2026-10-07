@@ -5,9 +5,9 @@ Provides temporary write-freeze mitigation capabilities triggered upon
 anomaly detection alerts from Module 4 or administrative commands.
 """
 
-from typing import Dict, Tuple, Optional, Any
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
+from typing import Any
 
 
 class FreezeManager:
@@ -19,14 +19,14 @@ class FreezeManager:
 
     def __init__(self, db=None):
         self._master_frozen: bool = False
-        self._master_freeze_reason: Optional[str] = None
-        self._master_frozen_at: Optional[str] = None
-        self._master_freeze_id: Optional[str] = None
-        self._master_expires_at: Optional[str] = None
-        self._master_initiated_by: Optional[str] = None
+        self._master_freeze_reason: str | None = None
+        self._master_frozen_at: str | None = None
+        self._master_freeze_id: str | None = None
+        self._master_expires_at: str | None = None
+        self._master_initiated_by: str | None = None
 
         # Maps user_id -> {"reason": str, "frozen_at": str, "freeze_id": str, "expires_at": str, "initiated_by": str}
-        self._subtree_freezes: Dict[str, Dict[str, str]] = {}
+        self._subtree_freezes: dict[str, dict[str, str]] = {}
         self.db = db
         
         if self.db:
@@ -44,7 +44,7 @@ class FreezeManager:
             self._master_initiated_by = master.get("initiated_by")
         self._subtree_freezes = states
 
-    def freeze_master(self, reason: str = "Global security incident triggered", initiated_by: str = "system", expires_at: Optional[str] = None) -> Dict[str, Any]:
+    def freeze_master(self, reason: str = "Global security incident triggered", initiated_by: str = "system", expires_at: str | None = None) -> dict[str, Any]:
         """Freezes all write operations system-wide across all subtrees."""
         self._master_frozen = True
         self._master_freeze_reason = reason
@@ -66,7 +66,7 @@ class FreezeManager:
             "initiated_by": self._master_initiated_by
         }
 
-    def unfreeze_master(self) -> Dict[str, Any]:
+    def unfreeze_master(self) -> dict[str, Any]:
         """Unfreezes system-wide write operations."""
         self._master_frozen = False
         reason = self._master_freeze_reason
@@ -83,7 +83,7 @@ class FreezeManager:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-    def freeze_subtree(self, user_id: str, reason: str = "Suspicious activity detected for user", initiated_by: str = "system", expires_at: Optional[str] = None) -> Dict[str, Any]:
+    def freeze_subtree(self, user_id: str, reason: str = "Suspicious activity detected for user", initiated_by: str = "system", expires_at: str | None = None) -> dict[str, Any]:
         """Freezes write operations on a specific user's subtree."""
         frozen_at = datetime.now(timezone.utc).isoformat()
         freeze_id = str(uuid.uuid4())
@@ -109,7 +109,7 @@ class FreezeManager:
             "initiated_by": initiated_by
         }
 
-    def unfreeze_subtree(self, user_id: str) -> Dict[str, Any]:
+    def unfreeze_subtree(self, user_id: str) -> dict[str, Any]:
         """Unfreezes write operations on a specific user's subtree."""
         prev = self._subtree_freezes.pop(user_id, None)
         
@@ -124,7 +124,7 @@ class FreezeManager:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-    def is_frozen(self, user_id: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    def is_frozen(self, user_id: str | None = None) -> tuple[bool, str | None]:
         """
         Checks if write operations are currently frozen for master or a user subtree.
         Enforces expiry logic dynamically.
@@ -162,7 +162,7 @@ class FreezeManager:
 
         return False, None
 
-    def get_freeze_status(self) -> Dict[str, Any]:
+    def get_freeze_status(self) -> dict[str, Any]:
         """Returns overview of all current freezes."""
         return {
             "master_frozen": self._master_frozen,

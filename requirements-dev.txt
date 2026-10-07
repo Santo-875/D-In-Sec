@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest>=7.4
+moto[s3,kms]>=5.0
+ruff
+bandit
+pip-audit

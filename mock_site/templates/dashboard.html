@@ -70,6 +70,7 @@
                 <p class="section-subtitle">Update your identity details for document verification</p>
             </div>
             <form method="POST" action="{{ url_for('dashboard.update_profile') }}" class="profile-form" id="profile-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="full_name">Full Legal Name</label>
@@ -169,6 +170,7 @@
                 <p class="section-subtitle">Submit identity documents — automatically encrypted and archived to AWS S3 (<strong>dinsec-m3-audit-bucket</strong>)</p>
             </div>
             <form method="POST" action="{{ url_for('dashboard.upload_document') }}" enctype="multipart/form-data" class="upload-form" id="upload-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="upload-grid">
                     <div class="form-group">
                         <label for="doc_type">Document Type</label>
@@ -269,6 +271,7 @@
                                     <td>
                                         {% if doc.status == 'Pending' %}
                                             <form method="POST" action="{{ url_for('dashboard.verify_document', doc_id=doc.id) }}" style="display:inline;">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <button type="submit" class="btn btn-sm btn-verify" id="verify-btn-{{ doc.id }}">
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                                     Verify

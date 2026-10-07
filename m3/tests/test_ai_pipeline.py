@@ -7,13 +7,9 @@ m3/tests/test_ai_pipeline.py — Tests for Phase 2:
   - Daily CERT-In summary generation with masking and idempotence
 """
 
-import json
-import os
-import tempfile
-import pytest
 
 from m3.database import M3Database
-from m3.retrain import LocalClassifier, retrain, LABEL_TAMPER, LABEL_NORMAL
+from m3.retrain import LABEL_NORMAL, LABEL_TAMPER, LocalClassifier, retrain
 from m3.summary import generate_daily_summary
 
 
@@ -40,11 +36,11 @@ def test_local_classifier_fast_loop():
     assert "accuracy" in metrics
 
     # Test classifying clear tamper text
-    label, conf = clf.classify("tampering and hash mismatch in audit log")
+    label, _conf = clf.classify("tampering and hash mismatch in audit log")
     assert label in [LABEL_TAMPER, None]
 
     # Test classifying clear normal text
-    label_norm, conf_norm = clf.classify("normal database read operation")
+    label_norm, _conf_norm = clf.classify("normal database read operation")
     assert label_norm in [LABEL_NORMAL, None]
 
 

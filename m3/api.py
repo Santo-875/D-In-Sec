@@ -17,6 +17,7 @@ Runs independently on port 5001.
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,31 +30,32 @@ if env_file.exists():
     load_dotenv(dotenv_path=env_file)
 
 import json
-import uuid
 import re
-import time
 import threading
-from typing import Dict, Any, Optional, List
-from flask import Flask, request, jsonify
+import time
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from flask import Flask, jsonify, request
+
+from m3.anchoring import ExternalAnchor
+from m3.audit_log import AppendOnlyAuditLog
+from m3.auth import require_role
+from m3.breach_alert import generate_breach_alert, record_breach_alert_to_db
 from m3.crypto_signer import (
     PublicKeyRegistry,
     generate_rsa_key_pair,
+    get_public_key_fingerprint,
     verify_signature,
-    sign_payload,
-    get_public_key_fingerprint
 )
-from m3.merkle_tree import HierarchicalMerkleTree
-from m3.audit_log import AppendOnlyAuditLog
+from m3.database import M3Database
 from m3.freeze_manager import FreezeManager
 from m3.m4_interface import M4PayloadFormatter
-from m3.breach_alert import generate_breach_alert, record_breach_alert_to_db
-from m3.auth import require_role
+from m3.merkle_tree import HierarchicalMerkleTree
 from m3.replay_guard import ReplayGuard
-from m3.database import M3Database
-from m3.anchoring import ExternalAnchor
-from datetime import datetime, timezone
-from m3.storage import get_storage_backend, DurableStorage
 from m3.signer import get_signer
+from m3.storage import DurableStorage, get_storage_backend
 
 
 def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
@@ -130,7 +132,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             logging.getLogger("m3.api").warning("storage.anchor failed (queued): %s", exc)
             return {"checkpoint": checkpoint, "key": None}
 
-    def _verify_anchor_signature(anchor_dict: Dict[str, Any]) -> bool:
+    def _verify_anchor_signature(anchor_dict: dict[str, Any]) -> bool:
         if not isinstance(anchor_dict, dict):
             return False
         sig = anchor_dict.get("signature")
@@ -151,13 +153,20 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                     import boto3
                     kms = boto3.client("kms", region_name=os.environ.get("AWS_REGION", "ap-south-1"))
                     resp = kms.get_public_key(KeyId=os.environ.get("KMS_KEY_ID"))
-                    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_public_key
+                    from cryptography.hazmat.primitives.serialization import (
+                        Encoding,
+                        PublicFormat,
+                        load_der_public_key,
+                    )
                     pub = load_der_public_key(resp["PublicKey"])
                     pub_key_pem = pub.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode('utf-8')
                 except Exception:
                     pass
             elif os.environ.get("M3_SIGNING_PRIVATE_KEY"):
-                from m3.crypto_signer import get_public_key_from_private_pem, load_private_key_from_env
+                from m3.crypto_signer import (
+                    get_public_key_from_private_pem,
+                    load_private_key_from_env,
+                )
                 priv = load_private_key_from_env()
                 if priv:
                     pub_key_pem = get_public_key_from_private_pem(priv)
@@ -165,10 +174,11 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
         if not pub_key_pem:
             return False
 
+        from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
-        from cryptography.hazmat.backends import default_backend
+
         from m3.crypto_signer import canonicalize_payload
 
         try:
@@ -208,7 +218,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             record_breach_alert_to_db(alert)
             db.update_ai_job_status(j_id, "COMPLETED", datetime.now(timezone.utc).isoformat())
         except Exception as e:
-            db.update_ai_job_status(j_id, f"FAILED: {str(e)}", datetime.now(timezone.utc).isoformat())
+            db.update_ai_job_status(j_id, f"FAILED: {e!s}", datetime.now(timezone.utc).isoformat())
 
     for job in db.get_pending_ai_jobs():
         thread = threading.Thread(
@@ -347,7 +357,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             
         anchor_file = audit_log.external_anchor.anchor_file_path
         with open(anchor_file, 'r') as f:
-            lines = [l.strip() for l in f.readlines() if l.strip()]
+            lines = [l.strip() for l in f if l.strip()]
             
         if not lines:
             return jsonify({"status": "FAILED", "reason": "External anchor file is empty"}), 404
@@ -367,7 +377,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             if not latest_anchor:
                 return jsonify({"status": "FAILED", "reason": "No master_root in anchor data"}), 400
         except (json.JSONDecodeError, TypeError) as e:
-            return jsonify({"status": "FAILED", "reason": f"Anchor file format is invalid: {str(e)}"}), 400
+            return jsonify({"status": "FAILED", "reason": f"Anchor file format is invalid: {e!s}"}), 400
         
         if latest_anchor == tree.master_root:
             return jsonify({
@@ -572,7 +582,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                     )
                     db.save_m4_payload(audit_entry.event_id, m4_payload, conn=conn)
         except Exception as e:
-            print(f"Error updating tree: {str(e)}")
+            print(f"Error updating tree: {e!s}")
             # Rollback in-memory state to match DB
             tree._load_from_db()
             audit_log._load_from_db()
@@ -626,6 +636,55 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             "total_user_subroots": len(tree.user_subroots),
             "permanent_root_chain_length": len(audit_log.get_permanent_root_chain()),
             "permanent_root_chain": audit_log.get_permanent_root_chain()
+        }), 200
+
+    @app.route('/api/v1/tree/snapshot', methods=['GET'])
+    @require_role("ADMIN", "SERVICE", "VIEWER")
+    def get_tree_snapshot():
+        """Returns full hierarchical Merkle snapshot and recent root history without PII."""
+        users_list = []
+        for u_id, subroot in tree.user_subroots.items():
+            leaves_list = []
+            for leaf in subroot.leaves.values():
+                leaves_list.append({
+                    "leaf_id": leaf.leaf_id,
+                    "version": leaf.version,
+                    "combined_hash": leaf.combined_hash,
+                    "timestamp": leaf.timestamp
+                })
+            users_list.append({
+                "user_id": u_id,
+                "subroot_hash": subroot.subroot_hash,
+                "leaf_count": len(subroot.leaves),
+                "leaves": leaves_list
+            })
+
+        recent_entries = audit_log._detailed_logs[-50:] if hasattr(audit_log, "_detailed_logs") else []
+        root_history = []
+        for entry in recent_entries:
+            if isinstance(entry, dict):
+                root_history.append({
+                    "event_id": entry.get("event_id"),
+                    "timestamp": entry.get("timestamp"),
+                    "user_id": entry.get("user_id"),
+                    "leaf_id": entry.get("leaf_id"),
+                    "old_master_root": entry.get("old_master_root"),
+                    "new_master_root": entry.get("new_master_root"),
+                })
+            else:
+                root_history.append({
+                    "event_id": getattr(entry, "event_id", None),
+                    "timestamp": getattr(entry, "timestamp", None),
+                    "user_id": getattr(entry, "user_id", None),
+                    "leaf_id": getattr(entry, "leaf_id", None),
+                    "old_master_root": getattr(entry, "old_master_root", None),
+                    "new_master_root": getattr(entry, "new_master_root", None),
+                })
+
+        return jsonify({
+            "master_root": tree.master_root,
+            "users": users_list,
+            "root_history": root_history
         }), 200
 
     @app.route('/api/v1/tree/proof/<user_id>/<leaf_id>', methods=['GET'])
@@ -733,7 +792,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                     db.update_ai_job_status(j_id, "COMPLETED", datetime.now(timezone.utc).isoformat())
                 except Exception as e:
                     try:
-                        db.update_ai_job_status(j_id, f"FAILED: {str(e)}", datetime.now(timezone.utc).isoformat())
+                        db.update_ai_job_status(j_id, f"FAILED: {e!s}", datetime.now(timezone.utc).isoformat())
                     except Exception:
                         pass
 
@@ -849,7 +908,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                 "master_root": computed_master
             }), 200
 
-        latest_key = sorted(anchor_keys)[-1]
+        latest_key = max(anchor_keys)
         anchor_data = storage.get(latest_key)
         if not anchor_data or not anchor_data.get("master_root"):
             return jsonify({
@@ -930,8 +989,6 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
         On mismatch or forged signature: saves alert + triggers freeze.
         If anchor unreachable: returns UNVERIFIED (never VERIFIED).
         """
-        tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
-
         # Step 1: Recompute master root from DB
         db_root = tree.master_root
 
@@ -945,7 +1002,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             }), 200
 
         # Get the latest (lexicographically last by key)
-        latest_key = sorted(anchor_keys)[-1]
+        latest_key = max(anchor_keys)
         anchor_data = storage.get(latest_key)
         if not anchor_data or not anchor_data.get("master_root"):
             return jsonify({
@@ -1027,7 +1084,6 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                 "X-Tenant-ID": request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
             }
         ):
-            from flask import g
             result = update_tree()
         return result
 

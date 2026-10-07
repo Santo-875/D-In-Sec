@@ -6,7 +6,8 @@ path proofs, and cryptographic signatures into a structured input payload
 for Module 4 (M4) anomaly & attack analysis.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any
+
 from m3.audit_log import AuditLogEntry
 
 
@@ -18,10 +19,10 @@ class M4PayloadFormatter:
     @staticmethod
     def format_m4_payload(
         audit_entry: AuditLogEntry,
-        update_proof: Dict[str, Any],
+        update_proof: dict[str, Any],
         signature_valid: bool,
-        freeze_status: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        freeze_status: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Constructs the structured payload delivered to M4.
 

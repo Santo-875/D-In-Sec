@@ -1,9 +1,10 @@
-import unittest
 import os
-import hashlib
-from m3.database import M3Database
-from m3.audit_log import AppendOnlyAuditLog
+import unittest
+
 from m3.anchoring import ExternalAnchor
+from m3.audit_log import AppendOnlyAuditLog
+from m3.database import M3Database
+
 
 class TestChaining(unittest.TestCase):
     def setUp(self):

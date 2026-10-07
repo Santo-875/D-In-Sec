@@ -45,10 +45,11 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-}
       - M3_API_URL=http://m3-sidecar:5001/api/v1/tree/update
       - M3_BASE_URL=http://m3-sidecar:5001
       - M3_SERVICE_API_KEY=${M3_SERVICE_API_KEY:-dev-service-key}
-      - M3_ADMIN_API_KEY=${M3_ADMIN_API_KEY:-dev-admin-key}
+      - M3_ADMIN_API_KEY=${M3_ADMIN_API_KEY:-}
       - M3_VIEWER_API_KEY=${M3_VIEWER_API_KEY:-dev-viewer-key}
     depends_on:
       m3-sidecar:

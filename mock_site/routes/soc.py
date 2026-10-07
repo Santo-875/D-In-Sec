@@ -18,8 +18,18 @@ def _get_m3_base_url():
         return api_url.split("/v1")[0].rstrip("/")
     return api_url.rstrip("/")
 
+M3_NOT_CONFIGURED = "M3 not configured (M3_ADMIN_API_KEY is not set)"
+
+
+def m3_configured():
+    """True when an M3 admin API key is available. No insecure default."""
+    return bool(os.environ.get("M3_ADMIN_API_KEY", "").strip())
+
 def _get_m3_headers():
-    admin_key = os.environ.get("M3_ADMIN_API_KEY", "dev-admin-key")
+    """Admin headers for M3, or None when M3 is not configured."""
+    admin_key = os.environ.get("M3_ADMIN_API_KEY", "").strip()
+    if not admin_key:
+        return None
     return {"X-API-Key": admin_key, "Content-Type": "application/json"}
 
 # ── Safe M3 Helper Functions (Timeouts + Error States) ─────────────────────
@@ -43,6 +53,11 @@ def fetch_cloud_status():
         "master_root": None,
         "error": None
     }
+
+    if headers is None:
+        status_data["status"] = "NOT CONFIGURED"
+        status_data["error"] = M3_NOT_CONFIGURED
+        return status_data
 
     try:
         r = requests.get(f"{base_url}/readyz", headers=headers, timeout=3)
@@ -72,6 +87,8 @@ def fetch_alerts():
     """Queries M3 /v1/alerts with timeout and error fallback."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        return []
     try:
         r = requests.get(f"{base_url}/v1/alerts", headers=headers, timeout=3)
         if r.status_code == 200:
@@ -84,6 +101,8 @@ def fetch_certin_summary():
     """Queries M3 /v1/export/certin with timeout and error fallback."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        return {"logs_count": 0, "summaries_count": 0, "summaries": []}
     try:
         r = requests.get(f"{base_url}/v1/export/certin", headers=headers, timeout=3)
         if r.status_code == 200:
@@ -96,6 +115,8 @@ def fetch_model_registry():
     """Queries M3 /v1/admin/model/registry with timeout and error fallback."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        return []
     try:
         r = requests.get(f"{base_url}/v1/admin/model/registry", headers=headers, timeout=3)
         if r.status_code == 200:
@@ -103,6 +124,20 @@ def fetch_model_registry():
     except Exception as exc:
         logger.warning("Error fetching M3 model registry: %s", exc)
     return []
+
+def fetch_tree_snapshot(timeout=3):
+    """Queries M3 /api/v1/tree/snapshot. Returns the snapshot dict or {"error": ...}."""
+    headers = _get_m3_headers()
+    if headers is None:
+        return {"error": M3_NOT_CONFIGURED, "code": "NOT_CONFIGURED"}
+    try:
+        r = requests.get(f"{_get_m3_base_url()}/api/v1/tree/snapshot", headers=headers, timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+        return {"error": f"M3 returned HTTP {r.status_code}", "code": "M3_ERROR"}
+    except Exception as exc:
+        logger.warning("Error fetching M3 tree snapshot: %s", exc)
+        return {"error": "M3 sidecar unreachable", "code": "M3_DOWN"}
 
 def execute_full_verification():
     """Calls M3 /v1/verify/full and formats step-by-step verification progress."""
@@ -114,6 +149,17 @@ def execute_full_verification():
         {"name": "3. Compare Database Root vs Anchored Root", "status": "PENDING", "detail": "Pending comparison"},
         {"name": "4. Verify Checkpoint Digital Signature (KMS / Local)", "status": "PENDING", "detail": "Pending signature check"}
     ]
+
+    if headers is None:
+        for s in steps:
+            s["status"] = "SKIPPED"
+            s["detail"] = M3_NOT_CONFIGURED
+        return {
+            "status": "NOT_CONFIGURED",
+            "message": M3_NOT_CONFIGURED,
+            "steps": steps,
+            "raw": {"error": M3_NOT_CONFIGURED}
+        }
 
     try:
         r = requests.get(f"{base_url}/v1/verify/full", headers=headers, timeout=5)
@@ -224,6 +270,8 @@ def export_certin():
     """Exports CERT-In logs and summaries bundle."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        return jsonify({"error": M3_NOT_CONFIGURED}), 503
     try:
         r = requests.get(f"{base_url}/v1/export/certin", headers=headers, timeout=5)
         if r.status_code == 200:
@@ -241,6 +289,9 @@ def rollback_model(version):
     """Rolls back the ML classifier model to an earlier version."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        flash(M3_NOT_CONFIGURED, "warning")
+        return redirect(url_for('soc.index'))
     try:
         r = requests.post(f"{base_url}/v1/admin/model/rollback/{version}", headers=headers, timeout=5)
         if r.status_code == 200:
@@ -256,6 +307,9 @@ def trigger_manual_anchor():
     """Manually triggers an S3 root anchor checkpoint."""
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
+    if headers is None:
+        flash(M3_NOT_CONFIGURED, "warning")
+        return redirect(url_for('soc.index'))
     try:
         r = requests.post(f"{base_url}/v1/admin/anchor", headers=headers, timeout=5)
         if r.status_code == 200:
@@ -275,7 +329,9 @@ def incident_detail(alert_id):
     base_url = _get_m3_base_url()
     headers = _get_m3_headers()
 
-    if incident.event_id:
+    if incident.event_id and headers is None:
+        verification = {"status": "NOT_CONFIGURED", "reason": M3_NOT_CONFIGURED}
+    elif incident.event_id:
         try:
             r_m4 = requests.get(f"{base_url}/api/v1/m4/payload/{incident.event_id}", headers=headers, timeout=3)
             if r_m4.status_code == 200:

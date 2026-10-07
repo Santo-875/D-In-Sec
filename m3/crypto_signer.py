@@ -5,16 +5,17 @@ Provides RSA-2048 digital signature generation, verification,
 key pair creation, and public key registry management.
 """
 
-import os
-import json
 import hashlib
-from typing import Dict, Any, Tuple, Optional
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes, serialization
+import json
+import os
+from typing import Any
+
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
-def generate_rsa_key_pair() -> Tuple[str, str]:
+def generate_rsa_key_pair() -> tuple[str, str]:
     """
     Generates a new RSA-2048 key pair in PEM format.
 
@@ -41,7 +42,7 @@ def generate_rsa_key_pair() -> Tuple[str, str]:
     return private_pem, public_pem
 
 
-def canonicalize_payload(payload: Dict[str, Any]) -> bytes:
+def canonicalize_payload(payload: dict[str, Any]) -> bytes:
     """
     Deterministically serializes a payload dictionary to bytes.
 
@@ -68,7 +69,7 @@ def get_public_key_fingerprint(public_key_pem: str) -> str:
     return hashlib.sha256(clean_pem).hexdigest()
 
 
-def sign_payload(private_key_pem: str, payload: Dict[str, Any]) -> str:
+def sign_payload(private_key_pem: str, payload: dict[str, Any]) -> str:
     """
     Signs a dictionary payload using an RSA private key with SHA-256 & PKCS1v15 padding.
 
@@ -96,7 +97,7 @@ def sign_payload(private_key_pem: str, payload: Dict[str, Any]) -> str:
     return signature.hex()
 
 
-def load_private_key_from_env(var_name: str = "M3_SIGNING_PRIVATE_KEY") -> Optional[str]:
+def load_private_key_from_env(var_name: str = "M3_SIGNING_PRIVATE_KEY") -> str | None:
     """
     Loads an RSA private key in PEM format strictly from an environment variable.
     Kept in memory only — never read from or written to a file.
@@ -142,7 +143,7 @@ def get_public_key_from_private_pem(private_key_pem: str) -> str:
     return public_pem
 
 
-def verify_signature(public_key_pem: str, payload: Dict[str, Any], signature_hex: str) -> bool:
+def verify_signature(public_key_pem: str, payload: dict[str, Any], signature_hex: str) -> bool:
     """
     Verifies an RSA signature against a payload using a public key.
 
@@ -182,9 +183,9 @@ class PublicKeyRegistry:
 
     def __init__(self, db=None):
         # Maps user_id -> public_key_pem
-        self._user_keys: Dict[str, str] = {}
+        self._user_keys: dict[str, str] = {}
         # Maps fingerprint -> user_id
-        self._fingerprint_map: Dict[str, str] = {}
+        self._fingerprint_map: dict[str, str] = {}
         self.db = db
         
         if self.db:
@@ -222,7 +223,7 @@ class PublicKeyRegistry:
             
         return fingerprint
 
-    def get_public_key(self, identity_id: str) -> Optional[str]:
+    def get_public_key(self, identity_id: str) -> str | None:
         """
         Retrieves public key PEM for a given identity.
         """
@@ -234,7 +235,7 @@ class PublicKeyRegistry:
         """
         return identity_id in self._user_keys
 
-    def get_identity_by_fingerprint(self, fingerprint: str) -> Optional[str]:
+    def get_identity_by_fingerprint(self, fingerprint: str) -> str | None:
         """
         Finds identity ID associated with key fingerprint.
         """

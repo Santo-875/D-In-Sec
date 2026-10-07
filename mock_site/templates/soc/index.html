@@ -49,6 +49,7 @@
         </div>
         <div>
             <form action="{{ url_for('soc.run_full_verify') }}" method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-danger btn-sm px-3">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -57,6 +58,7 @@
                 </button>
             </form>
             <form action="{{ url_for('soc.trigger_manual_anchor') }}" method="POST" style="display:inline; margin-left: 6px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Anchor Checkpoint</button>
             </form>
             <a href="{{ url_for('soc.export_certin') }}" class="btn btn-outline-primary btn-sm" style="margin-left: 6px;">Export CERT-In Bundle</a>
@@ -174,6 +176,7 @@
                 {% else %}
                     <p class="text-muted small">No verification run yet in this session. Click <strong>"Run Full Verify"</strong> to recompute in-memory Merkle tree roots, retrieve S3/storage anchors, and mathematically verify digital signatures.</p>
                     <form action="{{ url_for('soc.run_full_verify') }}" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Launch Verification</button>
                     </form>
                 {% endif %}
@@ -296,6 +299,7 @@
                                         <td>
                                             {% if not m.is_active %}
                                                 <form action="{{ url_for('soc.rollback_model', version=m.version) }}" method="POST" style="display:inline;">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                     <button type="submit" class="btn btn-sm btn-outline-warning">Rollback to this</button>
                                                 </form>
                                             {% else %}
