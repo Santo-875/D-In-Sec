@@ -84,6 +84,87 @@ paths:
         '200':
           description: Current root state
 
+  /api/v1/tree/snapshot:
+    get:
+      summary: Hierarchical Merkle Tree Snapshot
+      description: Returns full hierarchical Merkle snapshot, level lists, previous master root, and newest-first root history without PII.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Merkle tree snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  master_root:
+                    type: string
+                  previous_master_root:
+                    type: string
+                    nullable: true
+                  master_levels:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+                  master_user_ids:
+                    type: array
+                    items:
+                      type: string
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: string
+                        subroot_hash:
+                          type: string
+                        leaf_count:
+                          type: integer
+                        leaves:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              leaf_id:
+                                type: string
+                              version:
+                                type: integer
+                              combined_hash:
+                                type: string
+                              timestamp:
+                                type: string
+                        levels:
+                          type: array
+                          items:
+                            type: array
+                            items:
+                              type: string
+                        leaf_ids:
+                          type: array
+                          items:
+                            type: string
+                  root_history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event_id:
+                          type: string
+                        timestamp:
+                          type: string
+                        user_id:
+                          type: string
+                        leaf_id:
+                          type: string
+                        old_master_root:
+                          type: string
+                        new_master_root:
+                          type: string
+
   /api/v1/tree/proof/{user_id}/{leaf_id}:
     get:
       summary: Merkle Inclusion Proof

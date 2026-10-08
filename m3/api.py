@@ -643,23 +643,29 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
     def get_tree_snapshot():
         """Returns full hierarchical Merkle snapshot and recent root history without PII."""
         users_list = []
-        for u_id, subroot in tree.user_subroots.items():
+        for u_id in sorted(tree.user_subroots.keys()):
+            subroot = tree.user_subroots[u_id]
+            sorted_leaf_ids = subroot.get_leaf_ids()
             leaves_list = []
-            for leaf in subroot.leaves.values():
+            for lid in sorted_leaf_ids:
+                leaf = subroot.leaves[lid]
                 leaves_list.append({
                     "leaf_id": leaf.leaf_id,
                     "version": leaf.version,
                     "combined_hash": leaf.combined_hash,
                     "timestamp": leaf.timestamp
                 })
+            user_levels = subroot.get_levels()
             users_list.append({
                 "user_id": u_id,
                 "subroot_hash": subroot.subroot_hash,
                 "leaf_count": len(subroot.leaves),
-                "leaves": leaves_list
+                "leaves": leaves_list,
+                "levels": user_levels,
+                "leaf_ids": sorted_leaf_ids
             })
 
-        recent_entries = audit_log._detailed_logs[-50:] if hasattr(audit_log, "_detailed_logs") else []
+        recent_entries = list(reversed(audit_log._detailed_logs))[:50] if hasattr(audit_log, "_detailed_logs") else []
         root_history = []
         for entry in recent_entries:
             if isinstance(entry, dict):
@@ -681,8 +687,13 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
                     "new_master_root": getattr(entry, "new_master_root", None),
                 })
 
+        previous_master_root = root_history[0]["old_master_root"] if root_history else None
+
         return jsonify({
             "master_root": tree.master_root,
+            "previous_master_root": previous_master_root,
+            "master_levels": tree.get_master_levels(),
+            "master_user_ids": tree.get_master_user_ids(),
             "users": users_list,
             "root_history": root_history
         }), 200

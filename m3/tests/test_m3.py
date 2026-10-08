@@ -281,3 +281,36 @@ def test_api_workflow(app_client):
     res = app_client.post('/api/v1/tree/update', json=freeze_update_req, headers=SERVICE_HEADERS)
     assert res.status_code == 403
     assert "frozen" in res.get_json()["error"].lower()
+
+
+def test_merkle_tree_levels_and_odd_nodes():
+    """Verify level calculations for odd and even nodes, and that subroot/master levels match roots."""
+    tree = HierarchicalMerkleTree()
+    assert tree.get_master_levels() == [[tree.master_root]]
+    assert tree.get_master_user_ids() == []
+
+    # 1 user with 3 leaves (odd number)
+    sub = tree.get_or_create_subroot("user_odd")
+    sub.update_leaf("l1", "a" * 64, "b" * 64, "2026-01-01T00:00:00Z")
+    sub.update_leaf("l2", "c" * 64, "d" * 64, "2026-01-01T00:00:00Z")
+    sub.update_leaf("l3", "e" * 64, "f" * 64, "2026-01-01T00:00:00Z")
+
+    levels = sub.get_levels()
+    leaf_ids = sub.get_leaf_ids()
+    assert leaf_ids == ["l1", "l2", "l3"]
+    # Level 0: 3 leaf hashes
+    assert len(levels[0]) == 3
+    # Level 1: 2 hashes (pair (0,1) and (2,2 dup))
+    assert len(levels[1]) == 2
+    # Level 2: 1 hash
+    assert len(levels[2]) == 1
+    # Level 3: subroot
+    assert len(levels[3]) == 1
+    assert levels[-1][0] == sub.subroot_hash
+
+    # Recompute master root
+    tree._recompute_master_root()
+    m_levels = tree.get_master_levels()
+    assert m_levels[-1][0] == tree.master_root
+    assert tree.get_master_user_ids() == ["user_odd"]
+

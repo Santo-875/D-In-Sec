@@ -80,6 +80,30 @@ class LeafNode:
         }
 
 
+def compute_merkle_levels(hashes: list[str]) -> list[list[str]]:
+    """
+    Computes all intermediate Merkle levels from a list of hashes using standard pairing.
+    If odd number of nodes in a level, duplicates the last node when pairing.
+    Returns:
+        List of levels where levels[0] is the input hashes list, and levels[-1] has 1 element.
+        Returns [] if hashes is empty.
+    """
+    if not hashes:
+        return []
+    levels = [list(hashes)]
+    current = list(hashes)
+    while len(current) > 1:
+        if len(current) % 2 != 0:
+            current.append(current[-1])  # Duplicate last element if odd
+        next_level = []
+        for i in range(0, len(current), 2):
+            combined = f"{current[i]}:{current[i+1]}"
+            next_level.append(compute_hash(combined))
+        levels.append(next_level)
+        current = next_level
+    return levels
+
+
 class UserSubroot:
     """
     Represents an isolated user subtree aggregating that user's leaves.
@@ -137,18 +161,25 @@ class UserSubroot:
         # Sort leaves by leaf_id for deterministic Merkle hashing
         sorted_leaf_ids = sorted(self.leaves.keys())
         hashes = [self.leaves[lid].combined_hash for lid in sorted_leaf_ids]
+        levels = compute_merkle_levels(hashes)
+        self.subroot_hash = compute_hash(f"USER:{self.user_id}:{levels[-1][0]}")
 
-        # Compute Merkle tree root for leaf hashes
-        while len(hashes) > 1:
-            if len(hashes) % 2 != 0:
-                hashes.append(hashes[-1])  # Duplicate last element if odd
-            next_level = []
-            for i in range(0, len(hashes), 2):
-                combined = f"{hashes[i]}:{hashes[i+1]}"
-                next_level.append(compute_hash(combined))
-            hashes = next_level
+    def get_levels(self) -> list[list[str]]:
+        """
+        Returns levels list for this user:
+          [[leaf hashes in sorted leaf_id order], ..., [subroot]]
+        """
+        if not self.leaves:
+            return [[self.subroot_hash]]
+        sorted_leaf_ids = sorted(self.leaves.keys())
+        hashes = [self.leaves[lid].combined_hash for lid in sorted_leaf_ids]
+        levels = compute_merkle_levels(hashes)
+        levels.append([self.subroot_hash])
+        return levels
 
-        self.subroot_hash = compute_hash(f"USER:{self.user_id}:{hashes[0]}")
+    def get_leaf_ids(self) -> list[str]:
+        """Returns leaf_ids in the same sorted order as get_levels()."""
+        return sorted(self.leaves.keys())
 
     def get_leaf_proof(self, leaf_id: str) -> list[dict[str, str]]:
         """
@@ -289,16 +320,36 @@ class HierarchicalMerkleTree:
 
         sorted_users = sorted(self.user_subroots.keys())
         hashes = [self.user_subroots[uid].subroot_hash for uid in sorted_users]
+        levels = compute_merkle_levels(hashes)
+        self.master_root = compute_hash(f"MASTER:{levels[-1][0]}")
 
-        while len(hashes) > 1:
-            if len(hashes) % 2 != 0:
-                hashes.append(hashes[-1])
-            next_level = []
-            for i in range(0, len(hashes), 2):
-                next_level.append(compute_hash(f"{hashes[i]}:{hashes[i+1]}"))
-            hashes = next_level
+    def get_master_levels(self) -> list[list[str]]:
+        """
+        Returns levels over subroot hashes in the order the master root uses,
+        ending with [[master_root]].
+        """
+        if not self.user_subroots:
+            return [[self.master_root]]
+        sorted_users = sorted(self.user_subroots.keys())
+        hashes = [self.user_subroots[uid].subroot_hash for uid in sorted_users]
+        levels = compute_merkle_levels(hashes)
+        levels.append([self.master_root])
+        return levels
 
-        self.master_root = compute_hash(f"MASTER:{hashes[0]}")
+    def get_master_user_ids(self) -> list[str]:
+        """Returns user_ids in the order the master root uses."""
+        return sorted(self.user_subroots.keys())
+
+    def get_levels(self) -> list[list[str]]:
+        """Alias for get_master_levels."""
+        return self.get_master_levels()
+
+    def get_user_levels(self, user_id: str) -> tuple[list[list[str]], list[str]]:
+        """Returns (levels, leaf_ids) for a given user_id."""
+        if user_id not in self.user_subroots:
+            return [], []
+        subroot = self.user_subroots[user_id]
+        return subroot.get_levels(), subroot.get_leaf_ids()
 
     def _get_master_sibling_proof(self, target_user_id: str) -> list[dict[str, str]]:
         """

@@ -8,6 +8,8 @@ m3/tests/test_endpoints.py — Tests for Phase 4 & Phase 5:
   - Multi-tenant isolation
 """
 
+import hashlib
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -15,13 +17,15 @@ import pytest
 from m3.api import create_m3_app
 from m3.crypto_signer import generate_rsa_key_pair, sign_payload
 from m3.database import M3Database
+from m3.storage import LocalBackend
 
 
 @pytest.fixture
 def client_and_db(tmp_path):
     db_path = str(tmp_path / "test_endpoints.db")
     anchor_path = str(tmp_path / "test_anchor.log")
-    app = create_m3_app(db_path=db_path, anchor_path=anchor_path)
+    storage_backend = LocalBackend(base_dir=str(tmp_path / "storage"))
+    app = create_m3_app(db_path=db_path, anchor_path=anchor_path, storage_backend=storage_backend)
     client = app.test_client()
     return client, M3Database(db_path)
 
@@ -161,4 +165,71 @@ def test_tree_snapshot_endpoint(client_and_db):
     evt2 = next(e for e in snap["root_history"] if e["event_id"] == "evt_snap_2")
     assert evt2["new_master_root"] == expected_root
     assert evt2["old_master_root"] is not None
+
+    # Verify T1 level lists, previous_master_root, and newest-first order
+    assert user_record["levels"][-1][0] == user_record["subroot_hash"]
+    assert user_record["leaf_ids"] == ["doc_1", "doc_2"]
+    assert snap["master_levels"][-1][0] == snap["master_root"]
+    assert "snap_user" in snap["master_user_ids"]
+    assert snap["root_history"][0]["event_id"] == "evt_snap_2"
+    assert snap["previous_master_root"] == evt2["old_master_root"]
+    assert snap["previous_master_root"] == res2.json["old_master_root"]
+
+
+def test_m3_seed_60_writes_and_verify_history(client_and_db):
+    """Seed 60 writes across 3 users via the M3 test client and assert history[0] is newest."""
+    client, _ = client_and_db
+    admin_headers = {"X-API-Key": "dev-admin-key"}
+    service_headers = {"X-API-Key": "dev-service-key"}
+    viewer_headers = {"X-API-Key": "dev-viewer-key"}
+
+    users = ["user_alpha", "user_beta", "user_gamma"]
+    keys = {}
+    for u in users:
+        priv, pub = generate_rsa_key_pair()
+        keys[u] = (priv, pub)
+        client.post(
+            '/api/v1/identity/register',
+            json={"identity_id": u, "public_key_pem": pub},
+            headers=admin_headers
+        )
+
+    last_old_root = None
+    last_event_id = None
+    # Seed 60 writes across 3 users (20 writes each)
+    for i in range(60):
+        u = users[i % 3]
+        priv, _ = keys[u]
+        evt_id = f"evt_seed_{i+1:03d}"
+        payload = {
+            "user_id": u,
+            "leaf_id": f"leaf_{i}",
+            "event_id": evt_id,
+            "nonce": f"nonce_seed_{i}_{uuid.uuid4().hex[:8]}",
+            "version": 1,
+            "masked_pii_hash": hashlib.sha256(f"pii_{i}".encode()).hexdigest(),
+            "real_data_hash": hashlib.sha256(f"real_{i}".encode()).hexdigest(),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        sig = sign_payload(priv, payload)
+        res = client.post('/api/v1/tree/update', json={**payload, "signature_hex": sig}, headers=service_headers)
+        assert res.status_code == 200
+        last_old_root = res.json["old_master_root"]
+        last_event_id = evt_id
+
+    # Query snapshot
+    snap_resp = client.get('/api/v1/tree/snapshot', headers=viewer_headers)
+    assert snap_resp.status_code == 200
+    snap = snap_resp.get_json()
+
+    # Assertions per T4
+    assert len(snap["root_history"]) == 50
+    assert snap["root_history"][0]["event_id"] == last_event_id
+    assert snap["root_history"][0]["event_id"] == "evt_seed_060"
+    assert snap["previous_master_root"] == last_old_root
+    assert snap["master_levels"][-1][0] == snap["master_root"]
+    for u_obj in snap["users"]:
+        assert u_obj["levels"][-1][0] == u_obj["subroot_hash"]
+        assert len(u_obj["leaves"]) == 20
+
 

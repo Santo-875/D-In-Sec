@@ -110,3 +110,43 @@ def test_admin_and_merkle_routes(mock_app, mock_client):
     r_merkle_data = mock_client.get("/admin/merkle/data")
     assert r_merkle_data.status_code == 200
 
+
+def test_admin_merkle_data_contains_master_levels(mock_app, mock_client, monkeypatch, tmp_path):
+    """With Flask test client logged in as admin, GET /admin/merkle -> 200 and /admin/merkle/data -> JSON containing master_levels."""
+    from m3.api import create_m3_app
+    m3_db = str(tmp_path / "m3_smoke.db")
+    m3_anchor = str(tmp_path / "m3_anchor.log")
+    m3_app = create_m3_app(db_path=m3_db, anchor_path=m3_anchor)
+    m3_client = m3_app.test_client()
+
+    def _mock_fetch_tree_snapshot(timeout=3):
+        resp = m3_client.get('/api/v1/tree/snapshot', headers={"X-API-Key": "dev-viewer-key"})
+        return resp.get_json()
+
+    import routes.soc as soc_routes
+    monkeypatch.setattr(soc_routes, "fetch_tree_snapshot", _mock_fetch_tree_snapshot)
+
+    with mock_app.app_context():
+        admin = User.query.filter_by(is_admin=True).first()
+        if not admin:
+            admin = User(username="admin_test", email="admin_test@test.com", is_admin=True)
+            admin.set_password("validpassword10")
+            db.session.add(admin)
+            db.session.commit()
+        admin_id = admin.id
+
+    with mock_client.session_transaction() as sess:
+        sess["_user_id"] = str(admin_id)
+        sess["_fresh"] = True
+
+    r_merkle = mock_client.get("/admin/merkle")
+    assert r_merkle.status_code == 200
+
+    r_merkle_data = mock_client.get("/admin/merkle/data")
+    assert r_merkle_data.status_code == 200
+    data = r_merkle_data.get_json()
+    assert "master_levels" in data
+    assert "master_root" in data
+    assert "previous_master_root" in data
+
+

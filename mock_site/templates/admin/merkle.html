@@ -4,66 +4,131 @@
 
 {% block content %}
 <style>
+    :root, [data-theme="light"] {
+        --merkle-root: #C0392B;
+        --merkle-prev-root: #E67E22;
+        --merkle-leaf: #2E8B57;
+        --merkle-branch: #8B5A2B;
+        --merkle-internal-fill: #EAD9C3;
+        --merkle-internal-stroke: #8B5A2B;
+        --merkle-text: #1F2A37;
+        --merkle-text-muted: #555D67;
+        --merkle-surface: #FFFFFF;
+        --merkle-surface2: #F6F3EF;
+        --merkle-border: #DCD0C3;
+    }
+
+    [data-theme="dark"], [data-bs-theme="dark"] {
+        --merkle-root: #C0392B;
+        --merkle-prev-root: #E67E22;
+        --merkle-leaf: #2E8B57;
+        --merkle-branch: #8B5A2B;
+        --merkle-internal-fill: #2A231C;
+        --merkle-internal-stroke: #8B5A2B;
+        --merkle-text: #F3F4F6;
+        --merkle-text-muted: #9CA3AF;
+        --merkle-surface: #1E1A17;
+        --merkle-surface2: #27211B;
+        --merkle-border: #44372D;
+    }
+
     .merkle-dashboard {
         display: flex;
         flex-direction: column;
         gap: 20px;
     }
 
+    /* Top Bar Header Card */
     .merkle-header-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
+        background: var(--merkle-surface);
+        border: 1px solid var(--merkle-border);
         border-radius: 12px;
-        padding: 20px 24px;
+        padding: 18px 24px;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        box-shadow: var(--shadow);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
 
-    .root-display-group {
+    .root-flow-group {
         display: flex;
         align-items: center;
         gap: 12px;
         flex-wrap: wrap;
     }
 
-    .root-label {
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--muted);
-    }
-
-    .root-hash-badge {
+    .root-node-chip {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        padding: 6px 12px;
-        border-radius: 6px;
+        padding: 6px 14px;
+        border-radius: 8px;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 14px;
-        color: var(--primary);
+        font-size: 13px;
         font-weight: 600;
         cursor: pointer;
-        transition: all 0.15s ease;
-        position: relative;
+        transition: all 0.2s ease;
+        user-select: none;
     }
 
-    .root-hash-badge:hover {
-        border-color: var(--primary);
-        background: var(--surface);
+    .root-node-chip.current-root {
+        background: rgba(192, 57, 43, 0.12);
+        color: var(--merkle-root);
+        border: 2px solid var(--merkle-root);
     }
 
-    .root-hash-badge .copy-icon {
-        width: 14px;
-        height: 14px;
-        stroke: var(--muted);
+    .root-node-chip.current-root:hover {
+        background: var(--merkle-root);
+        color: #FFFFFF;
+        box-shadow: 0 0 10px rgba(192, 57, 43, 0.35);
+    }
+
+    .root-node-chip.prev-root {
+        background: rgba(230, 126, 34, 0.12);
+        color: var(--merkle-prev-root);
+        border: 2px solid var(--merkle-prev-root);
+    }
+
+    .root-node-chip.prev-root:hover {
+        background: var(--merkle-prev-root);
+        color: #1F2A37;
+        box-shadow: 0 0 10px rgba(230, 126, 34, 0.35);
+    }
+
+    .root-arrow-sep {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--merkle-branch);
+    }
+
+    .change-alert-badge {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 9999px;
+        background: rgba(192, 57, 43, 0.15);
+        color: var(--merkle-root);
+        border: 1px solid var(--merkle-root);
+        animation: pulseFade 2.5s forwards ease;
+    }
+
+    @keyframes pulseFade {
+        0% { opacity: 0; transform: scale(0.95); }
+        15% { opacity: 1; transform: scale(1.05); }
+        30% { opacity: 1; transform: scale(1); }
+        80% { opacity: 1; }
+        100% { opacity: 0; transform: scale(0.95); }
+    }
+
+    .status-group {
+        display: flex;
+        align-items: center;
+        gap: 12px;
     }
 
     .badge-status {
@@ -72,15 +137,17 @@
         gap: 6px;
         font-size: 12px;
         font-weight: 500;
-        padding: 4px 10px;
+        padding: 4px 12px;
         border-radius: 9999px;
-        background: var(--surface2);
-        color: var(--muted);
+        background: var(--merkle-surface2);
+        color: var(--merkle-text-muted);
+        border: 1px solid var(--merkle-border);
     }
 
     .badge-status.live {
-        background: rgba(63, 143, 107, 0.12);
-        color: var(--success);
+        background: rgba(46, 139, 87, 0.12);
+        color: var(--merkle-leaf);
+        border-color: rgba(46, 139, 87, 0.3);
     }
 
     .pulse-dot {
@@ -97,454 +164,1108 @@
         50% { opacity: 0.4; transform: scale(0.85); }
     }
 
-    .change-alert-badge {
-        display: none;
+    /* Small Legend */
+    .merkle-legend-card {
+        background: var(--merkle-surface);
+        border: 1px solid var(--merkle-border);
+        border-radius: 8px;
+        padding: 10px 18px;
+        display: flex;
         align-items: center;
-        gap: 6px;
+        flex-wrap: wrap;
+        gap: 20px;
         font-size: 12px;
+        color: var(--merkle-text-muted);
+    }
+
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
         font-weight: 600;
-        padding: 4px 10px;
-        border-radius: 9999px;
-        background: rgba(200, 120, 90, 0.15);
-        color: var(--accent);
-        border: 1px solid rgba(200, 120, 90, 0.3);
-        animation: fadeInOut 2.5s forwards ease;
+        color: var(--merkle-text);
     }
 
-    @keyframes fadeInOut {
-        0% { opacity: 0; transform: translateY(-4px); }
-        15% { opacity: 1; transform: translateY(0); }
-        85% { opacity: 1; transform: translateY(0); }
-        100% { opacity: 0; transform: translateY(-4px); }
+    .legend-color-dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        border: 2px solid transparent;
     }
 
-    /* History Timeline */
+    /* Panels & Containers */
     .merkle-panel {
-        background: var(--surface);
-        border: 1px solid var(--border);
+        background: var(--merkle-surface);
+        border: 1px solid var(--merkle-border);
         border-radius: 12px;
         padding: 20px;
-        box-shadow: var(--shadow);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     }
 
-    .panel-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text);
-        margin-bottom: 12px;
+    .panel-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-    }
-
-    .timeline-container {
-        display: flex;
-        gap: 12px;
-        overflow-x: auto;
-        padding-bottom: 8px;
-    }
-
-    .timeline-item {
-        flex: 0 0 auto;
-        background: var(--surface2);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 10px 14px;
-        min-width: 200px;
-        font-size: 12px;
-    }
-
-    .timeline-time {
-        font-size: 11px;
-        color: var(--muted);
-        margin-bottom: 4px;
-    }
-
-    .timeline-event {
-        font-weight: 600;
-        color: var(--text);
-        margin-bottom: 4px;
-    }
-
-    .timeline-hash {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 11px;
-        color: var(--primary);
-    }
-
-    /* Visual Tree View */
-    .tree-stage {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 24px;
-        min-height: 480px;
-        position: relative;
-        overflow: auto;
-    }
-
-    .tree-root-box {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        margin-bottom: 30px;
-    }
-
-    .node-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 10px 14px;
-        box-shadow: var(--shadow);
-        transition: all 0.2s ease;
-        position: relative;
-    }
-
-    .node-card.master-node {
-        border-color: var(--primary);
-        background: var(--surface2);
-        text-align: center;
-        min-width: 240px;
-    }
-
-    .node-card.subroot-node {
-        border-left: 4px solid var(--primary);
-        cursor: pointer;
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .node-card.subroot-node:hover {
-        border-color: var(--primary);
-        background: var(--surface2);
-    }
-
-    .node-card.leaf-node {
-        border-left: 3px solid var(--accent);
-        font-size: 12px;
-        padding: 8px 12px;
-        background: var(--surface);
-    }
-
-    .node-card.leaf-node:hover {
-        border-color: var(--accent);
-        box-shadow: var(--shadow-md);
-    }
-
-    /* Diff Pulse Animation (1.5s) */
-    .diff-highlight {
-        animation: diffPulse 1.5s ease-out;
-    }
-
-    @keyframes diffPulse {
-        0% {
-            box-shadow: 0 0 0 4px rgba(200, 120, 90, 0.6);
-            background-color: rgba(200, 120, 90, 0.15);
-            border-color: var(--accent);
-        }
-        50% {
-            box-shadow: 0 0 0 8px rgba(200, 120, 90, 0.3);
-            background-color: rgba(200, 120, 90, 0.1);
-        }
-        100% {
-            box-shadow: var(--shadow);
-            background-color: var(--surface);
-            border-color: var(--border);
-        }
-    }
-
-    .users-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        max-width: 900px;
-        margin: 0 auto;
-    }
-
-    .user-branch {
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--surface);
-        overflow: hidden;
-        transition: border-color 0.15s ease;
-    }
-
-    .user-branch.expanded {
-        border-color: var(--primary);
-    }
-
-    .leaves-container {
-        display: none;
-        padding: 16px;
-        background: var(--surface2);
-        border-top: 1px solid var(--border);
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-        gap: 12px;
-    }
-
-    .user-branch.expanded .leaves-container {
-        display: grid;
-    }
-
-    .subroot-info {
-        display: flex;
-        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
         gap: 10px;
     }
 
-    .toggle-arrow {
-        width: 16px;
-        height: 16px;
-        transition: transform 0.2s ease;
-        stroke: var(--muted);
+    .panel-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--merkle-text);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 
-    .user-branch.expanded .toggle-arrow {
-        transform: rotate(90deg);
-        stroke: var(--primary);
+    .svg-scroll-container {
+        width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border: 1px solid var(--merkle-border);
+        border-radius: 8px;
+        background: var(--merkle-surface2);
+        padding: 12px 8px;
+        box-sizing: border-box;
     }
 
-    .badge-count {
-        background: var(--surface2);
-        color: var(--muted);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 11px;
+    .svg-scroll-container svg {
+        display: block;
+        margin: 0 auto;
+    }
+
+    /* SVG Node Styling */
+    .svg-node {
+        cursor: pointer;
+        transition: transform 0.15s ease, filter 0.15s ease;
+    }
+
+    .svg-node:hover {
+        filter: brightness(1.08);
+    }
+
+    .svg-edge {
+        stroke: var(--merkle-branch);
+        stroke-width: 2px;
+        fill: none;
+        transition: stroke-width 0.2s ease, filter 0.2s ease;
+    }
+
+    .svg-edge.dup-edge {
+        stroke-dasharray: 4, 3;
+    }
+
+    /* Highlight styles (selected or diff) */
+    .path-highlight {
+        stroke-width: 3.5px !important;
+        filter: drop-shadow(0 0 6px rgba(192, 57, 43, 0.6)) !important;
+    }
+
+    .path-highlight-green {
+        stroke-width: 3.5px !important;
+        filter: drop-shadow(0 0 6px rgba(46, 139, 87, 0.6)) !important;
+    }
+
+    @keyframes leafPulseKeyframe {
+        0%, 100% { filter: drop-shadow(0 0 2px rgba(46, 139, 87, 0.4)); }
+        50% { filter: drop-shadow(0 0 10px rgba(46, 139, 87, 0.9)); stroke-width: 4px; }
+    }
+
+    .leaf-pulse {
+        animation: leafPulseKeyframe 1.5s ease-in-out 3;
+    }
+
+    /* Subroot to User Tree Connector */
+    .connector-banner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 8px;
+        background: var(--merkle-surface2);
+        border: 1px dashed var(--merkle-branch);
+        border-radius: 8px;
+        color: var(--merkle-branch);
+        font-size: 13px;
         font-weight: 600;
     }
 
-    .custom-tooltip {
-        position: absolute;
-        bottom: calc(100% + 8px);
-        left: 50%;
-        transform: translateX(-50%);
-        background: #1F2A37;
-        color: #F9FAFB;
-        padding: 6px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        white-space: nowrap;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.15s ease;
-        z-index: 50;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    /* Split layout for User Tree & Sibling Inspector */
+    .user-explorer-grid {
+        display: grid;
+        grid-template-columns: 1fr 340px;
+        gap: 16px;
     }
 
-    .custom-tooltip::after {
-        content: '';
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        border-width: 4px;
-        border-style: solid;
-        border-color: #1F2A37 transparent transparent transparent;
+    @media (max-width: 1024px) {
+        .user-explorer-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
-    .node-card:hover .custom-tooltip {
-        opacity: 1;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        color: var(--muted);
-    }
-
-    .cap-banner {
-        text-align: center;
-        margin-top: 16px;
-        padding: 12px;
-        background: var(--surface2);
-        border: 1px dashed var(--border);
+    /* Sibling Panel */
+    .side-inspector {
+        background: var(--merkle-surface);
+        border: 1px solid var(--merkle-border);
         border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+    .inspector-title {
         font-size: 13px;
-        color: var(--muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--merkle-text-muted);
+        border-bottom: 1px solid var(--merkle-border);
+        padding-bottom: 8px;
+        margin: 0;
+    }
+
+    .sibling-step {
+        background: var(--merkle-surface2);
+        border: 1px solid var(--merkle-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .sibling-step-header {
+        display: flex;
+        justify-content: space-between;
+        font-weight: 600;
+        color: var(--merkle-text);
+        margin-bottom: 4px;
+    }
+
+    .sibling-hash {
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 11px;
+        color: var(--merkle-branch);
+        word-break: break-all;
+    }
+
+    /* Timeline */
+    .timeline-container {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .timeline-row {
+        background: var(--merkle-surface2);
+        border: 1px solid var(--merkle-border);
+        border-radius: 8px;
+        padding: 10px 14px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+    }
+
+    .timeline-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        color: var(--merkle-text-muted);
+    }
+
+    .timeline-chips {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 12px;
+    }
+
+    .chip-root {
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .chip-root.old {
+        background: rgba(230, 126, 34, 0.15);
+        color: var(--merkle-prev-root);
+        border: 1px solid var(--merkle-prev-root);
+    }
+
+    .chip-root.new {
+        background: rgba(192, 57, 43, 0.15);
+        color: var(--merkle-root);
+        border: 1px solid var(--merkle-root);
+    }
+
+    /* Floating Tooltip */
+    #merkle-tooltip {
+        position: fixed;
+        display: none;
+        z-index: 9999;
+        background: #111827;
+        color: #F9FAFB;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        pointer-events: none;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+        max-width: 320px;
+        word-break: break-all;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+
+    /* Buttons */
+    .merkle-btn {
+        background: var(--merkle-surface2);
+        border: 1px solid var(--merkle-border);
+        color: var(--merkle-text);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: background 0.15s ease;
+    }
+
+    .merkle-btn:hover {
+        background: var(--merkle-border);
+    }
+
+    .merkle-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .toast-copy {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: #1F2A37;
+        color: #FFFFFF;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        display: none;
+        z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
     }
 </style>
 
 <div class="merkle-dashboard">
-    <!-- Top Status Card -->
+    <!-- Error Banner -->
+    <div id="merkle-error-banner" class="alert alert-danger" style="display: none; border-radius: 8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span id="error-message">M3 sidecar unreachable</span>
+        </div>
+    </div>
+
+    <!-- Top Bar Header Card -->
     <div class="merkle-header-card">
-        <div class="root-display-group">
-            <span class="root-label">Master Root:</span>
-            <div id="master-root-badge" class="root-hash-badge" onclick="copyMasterRoot()" title="Click to copy full SHA-256 hash">
-                <span id="master-root-display">Loading...</span>
-                <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-                <div id="copy-tooltip" class="custom-tooltip">Copied to clipboard!</div>
+        <div class="root-flow-group">
+            <span style="font-size:12px; font-weight:700; color:var(--merkle-text-muted); text-transform:uppercase;">Root Transition:</span>
+            
+            <!-- Previous Root -->
+            <div id="prev-root-node" class="root-node-chip prev-root" onclick="copyHashText(this.dataset.hash, 'Previous Root')" title="Click to copy full hash">
+                <span>Prev:</span>
+                <span id="prev-root-val">genesis</span>
             </div>
-            <div id="root-change-badge" class="change-alert-badge">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                </svg>
-                Root changed
+
+            <span class="root-arrow-sep">&rarr;</span>
+
+            <!-- Master Root -->
+            <div id="master-root-node" class="root-node-chip current-root" onclick="copyHashText(this.dataset.hash, 'Master Root')" title="Click to copy full hash">
+                <span>Master:</span>
+                <span id="master-root-val">Loading...</span>
             </div>
+
+            <!-- Root changed badge -->
+            <span id="root-change-badge" class="change-alert-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                Root Changed
+            </span>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 12px;">
+        <div class="status-group">
             <div id="live-indicator" class="badge-status live">
                 <span class="pulse-dot"></span>
                 <span>Live (5s)</span>
             </div>
-            <button class="btn btn-secondary btn-sm" onclick="fetchMerkleData(true)">Refresh Now</button>
+            <button class="merkle-btn" onclick="fetchMerkleData(true)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                Refresh
+            </button>
         </div>
     </div>
 
-    <!-- Error/Notice Banner -->
-    <div id="merkle-error-banner" style="display: none; background: rgba(194, 77, 77, 0.1); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; color: var(--danger); font-size: 13px;">
-        <strong>Warning:</strong> <span id="error-message">M3 sidecar unreachable</span>
+    <!-- Small Legend -->
+    <div class="merkle-legend-card">
+        <span style="font-weight:700;">Legend:</span>
+        <div class="legend-item">
+            <span class="legend-color-dot" style="background:#C0392B;"></span>
+            <span>Master Root (#C0392B)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color-dot" style="background:#E67E22;"></span>
+            <span>Previous Root (#E67E22)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color-dot" style="background:#EAD9C3; border-color:#8B5A2B;"></span>
+            <span>Branch / Internal (#8B5A2B)</span>
+        </div>
+        <div class="legend-item">
+            <span class="legend-color-dot" style="background:#2E8B57;"></span>
+            <span>Leaf Node (#2E8B57)</span>
+        </div>
+    </div>
+
+    <!-- Card 1: Master Merkle Tree -->
+    <div class="merkle-panel">
+        <div class="panel-header">
+            <h2 class="panel-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--merkle-root)" stroke-width="2">
+                    <circle cx="12" cy="5" r="3"></circle>
+                    <circle cx="6" cy="19" r="3"></circle>
+                    <circle cx="18" cy="19" r="3"></circle>
+                    <path d="M12 8v4M6 16l6-4 6 4"></path>
+                </svg>
+                Master Merkle Tree (Top-Down)
+            </h2>
+            <div id="users-pagination-controls" style="display:none; align-items:center; gap:8px;">
+                <button class="merkle-btn" id="users-prev-btn" onclick="prevUsersPage()">&larr; Prev</button>
+                <span id="users-page-indicator" style="font-size:12px; font-weight:600; color:var(--merkle-text-muted);">Page 1 of 1</span>
+                <button class="merkle-btn" id="users-next-btn" onclick="nextUsersPage()">Next &rarr;</button>
+            </div>
+        </div>
+
+        <div class="svg-scroll-container">
+            <svg id="master-tree-svg" width="800" height="240"></svg>
+        </div>
+    </div>
+
+    <!-- Dashed Visual Connector to Selected User Tree -->
+    <div class="connector-banner" id="subroot-connector-banner">
+        <span>&darr; Connected Subtree for Selected User: <strong id="connector-user-id" style="color:var(--merkle-text);">None</strong> &darr;</span>
+    </div>
+
+    <!-- Card 2: Selected User Tree + Sibling Inspector -->
+    <div class="user-explorer-grid">
+        <div class="merkle-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--merkle-leaf)" stroke-width="2">
+                        <path d="M11 20A7 7 0 0 1 4 13C4 7 11 3 11 3s7 4 7 10a7 7 0 0 1-7 7Z"></path>
+                        <path d="M11 3v17"></path>
+                    </svg>
+                    User Tree: <span id="selected-user-heading" style="color:var(--merkle-leaf);">None</span>
+                </h2>
+                <div id="leaves-cap-controls" style="display:none; align-items:center; gap:8px;">
+                    <span id="leaves-cap-text" style="font-size:12px; color:var(--merkle-text-muted);">Showing newest 32 leaves</span>
+                    <button class="merkle-btn" id="toggle-all-leaves-btn" onclick="toggleShowAllLeaves()">Show All</button>
+                </div>
+            </div>
+
+            <div class="svg-scroll-container">
+                <svg id="user-tree-svg" width="800" height="240"></svg>
+            </div>
+        </div>
+
+        <!-- Right Side Panel: Sibling & Path Inspector -->
+        <div class="side-inspector" id="side-inspector">
+            <h3 class="inspector-title">Merkle Inclusion Path</h3>
+            <div id="inspector-content">
+                <p style="color:var(--merkle-text-muted); font-size:12px; margin:0;">
+                    Click any leaf node in the user tree to highlight its cryptographic path to the Master Root and inspect sibling hashes.
+                </p>
+            </div>
+        </div>
     </div>
 
     <!-- Root History Timeline -->
     <div class="merkle-panel">
-        <div class="panel-title">
-            <span>Root History Timeline (Last 10 Changes)</span>
-            <span id="history-count" style="font-size: 12px; color: var(--muted); font-weight: normal;">0 events</span>
-        </div>
-        <div id="timeline-container" class="timeline-container">
-            <div style="color: var(--muted); font-size: 12px; padding: 10px;">Loading history...</div>
-        </div>
-    </div>
-
-    <!-- Interactive Merkle Tree Visualization -->
-    <div class="tree-stage">
-        <div class="tree-root-box">
-            <div class="root-label" style="margin-bottom: 6px;">Master Root Node</div>
-            <div id="master-node" class="node-card master-node">
-                <div style="font-weight: 700; color: var(--text); font-size: 14px;">Master Merkle Root</div>
-                <div id="master-node-hash" style="font-family: ui-monospace, monospace; font-size: 12px; color: var(--primary); margin-top: 4px;">-</div>
-            </div>
-            <svg width="2" height="30" style="margin-top: 8px;">
-                <line x1="1" y1="0" x2="1" y2="30" stroke="var(--border)" stroke-width="2" stroke-dasharray="4 2"/>
-            </svg>
+        <div class="panel-header">
+            <h2 class="panel-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--merkle-prev-root)" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                Root Update Timeline (Newest First)
+            </h2>
+            <span id="timeline-count-badge" style="font-size:12px; font-weight:600; color:var(--merkle-text-muted);">0 events</span>
         </div>
 
-        <!-- Users and Leaves Container -->
-        <div id="users-container" class="users-grid">
-            <div class="empty-state">Loading Merkle tree state...</div>
+        <div id="timeline-list" class="timeline-container">
+            <div style="color:var(--merkle-text-muted); font-size:12px; padding:12px;">No root changes recorded.</div>
         </div>
 
-        <div id="cap-notice" class="cap-banner" style="display:none;">
-            <span id="cap-text">Showing 200 nodes.</span>
-            <button class="btn btn-secondary btn-sm" style="margin-left: 8px;" onclick="renderAllNodes()">Show more</button>
+        <div style="margin-top:14px; text-align:center;">
+            <button class="merkle-btn" id="timeline-more-btn" style="display:none;" onclick="toggleTimelineExpansion()">
+                Show More
+            </button>
         </div>
     </div>
 </div>
 
-<script>
-    let currentMasterRoot = null;
-    let fullMasterRoot = "";
-    let previousTreeState = null;
-    let pollInterval = null;
-    let showAllNodes = false;
-    let cachedData = null;
+<!-- Floating Tooltip -->
+<div id="merkle-tooltip"></div>
 
-    function copyMasterRoot() {
-        if (!fullMasterRoot) return;
-        navigator.clipboard.writeText(fullMasterRoot).then(() => {
-            const tip = document.getElementById('copy-tooltip');
-            tip.style.opacity = '1';
-            setTimeout(() => { tip.style.opacity = '0'; }, 1500);
+<!-- Copy Toast -->
+<div id="copy-toast" class="toast-copy">Copied to clipboard</div>
+
+<script>
+    // State management
+    let previousTreeSnapshot = null;
+    let currentTreeSnapshot = null;
+    let selectedUserId = null;
+    let selectedLeafId = null;
+    let userManuallySelected = false;
+    let showAllLeaves = false;
+    let timelineExpanded = false;
+    let usersCurrentPage = 1;
+    const USERS_PER_PAGE = 12;
+    let pollTimer = null;
+
+    // Format short hash
+    function formatHash(hash, len = 10) {
+        if (!hash) return "genesis";
+        return hash.length > len ? hash.substring(0, len) + "..." : hash;
+    }
+
+    // Copy to clipboard
+    function copyHashText(text, label = "Hash") {
+        if (!text || text === "genesis" || text === "null") return;
+        navigator.clipboard.writeText(text).then(() => {
+            const toast = document.getElementById('copy-toast');
+            toast.textContent = `${label} copied to clipboard!`;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
         }).catch(err => {
-            console.error('Copy failed:', err);
+            console.warn('Copy failed:', err);
         });
     }
 
-    function toggleUserBranch(element) {
-        const branch = element.closest('.user-branch');
-        if (branch) {
-            branch.classList.toggle('expanded');
+    // Floating Tooltip handlers
+    function showTooltip(evt, text) {
+        const tip = document.getElementById('merkle-tooltip');
+        tip.innerHTML = text;
+        tip.style.display = 'block';
+        moveTooltip(evt);
+    }
+
+    function moveTooltip(evt) {
+        const tip = document.getElementById('merkle-tooltip');
+        const x = evt.clientX + 14;
+        const y = evt.clientY + 14;
+        tip.style.left = `${Math.min(window.innerWidth - 330, x)}px`;
+        tip.style.top = `${Math.min(window.innerHeight - 100, y)}px`;
+    }
+
+    function hideTooltip() {
+        const tip = document.getElementById('merkle-tooltip');
+        tip.style.display = 'none';
+    }
+
+    // Pagination for users
+    function prevUsersPage() {
+        if (usersCurrentPage > 1) {
+            usersCurrentPage--;
+            renderMasterTree(currentTreeSnapshot);
         }
     }
 
-    function formatHash(hash, length = 12) {
-        if (!hash) return "null";
-        return hash.length > length ? hash.substring(0, length) + '...' : hash;
+    function nextUsersPage() {
+        const totalUsers = (currentTreeSnapshot && currentTreeSnapshot.users) ? currentTreeSnapshot.users.length : 0;
+        const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
+        if (usersCurrentPage < totalPages) {
+            usersCurrentPage++;
+            renderMasterTree(currentTreeSnapshot);
+        }
     }
 
-    function renderTimeline(historyList) {
-        const container = document.getElementById('timeline-container');
-        const countSpan = document.getElementById('history-count');
-        if (!historyList || historyList.length === 0) {
-            container.innerHTML = '<div style="color: var(--muted); font-size: 12px; padding: 10px;">No root changes recorded.</div>';
-            countSpan.textContent = '0 events';
-            return;
+    function toggleShowAllLeaves() {
+        showAllLeaves = !showAllLeaves;
+        const btn = document.getElementById('toggle-all-leaves-btn');
+        btn.textContent = showAllLeaves ? 'Show Newest 32' : 'Show All';
+        renderUserSubtree();
+    }
+
+    function toggleTimelineExpansion() {
+        timelineExpanded = !timelineExpanded;
+        const btn = document.getElementById('timeline-more-btn');
+        btn.textContent = timelineExpanded ? 'Show Less' : 'Show More';
+        renderTimeline((currentTreeSnapshot && currentTreeSnapshot.root_history) || []);
+    }
+
+    // Select a user
+    function selectUser(userId, isManual = true) {
+        if (isManual) userManuallySelected = true;
+        selectedUserId = userId;
+        selectedLeafId = null; // reset leaf selection when changing user
+        showAllLeaves = false;
+        const btn = document.getElementById('toggle-all-leaves-btn');
+        if (btn) btn.textContent = 'Show All';
+
+        document.getElementById('connector-user-id').textContent = userId;
+        document.getElementById('selected-user-heading').textContent = userId;
+
+        renderMasterTree(currentTreeSnapshot);
+        renderUserSubtree();
+        clearSiblingPanel();
+    }
+
+    // Select a leaf
+    function selectLeaf(leafId) {
+        selectedLeafId = leafId;
+        renderMasterTree(currentTreeSnapshot);
+        renderUserSubtree();
+        renderSiblingPanel();
+    }
+
+    function clearSiblingPanel() {
+        const content = document.getElementById('inspector-content');
+        content.innerHTML = `
+            <p style="color:var(--merkle-text-muted); font-size:12px; margin:0;">
+                Click any leaf node in the user tree to highlight its cryptographic path to the Master Root and inspect sibling hashes.
+            </p>
+        `;
+    }
+
+    // Helper: compute binary Merkle path for an index in a levels array
+    function computeProofPath(levels, targetIdx) {
+        // levels is [[inputs], ..., [root]]
+        const path = [];
+        let currIdx = targetIdx;
+        for (let l = 0; l < levels.length - 1; l++) {
+            const levelNodes = levels[l];
+            const isRight = currIdx % 2 === 1;
+            let siblingIdx = isRight ? currIdx - 1 : currIdx + 1;
+            let isDup = false;
+            if (siblingIdx >= levelNodes.length) {
+                // Odd node paired with itself
+                siblingIdx = currIdx;
+                isDup = true;
+            }
+            path.push({
+                level: l,
+                nodeIdx: currIdx,
+                nodeHash: levelNodes[currIdx],
+                siblingIdx: siblingIdx,
+                siblingHash: levelNodes[siblingIdx],
+                direction: isDup ? 'dup' : (isRight ? 'left' : 'right'),
+                isDup: isDup
+            });
+            currIdx = Math.floor(currIdx / 2);
         }
+        return path;
+    }
 
-        const recent = historyList.slice(0, 10);
-        countSpan.textContent = `${recent.length} recent change(s)`;
-        
-        let html = '';
-        recent.forEach((item) => {
-            const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'N/A';
-            const eventStr = item.event || 'ROOT_UPDATE';
-            const hash = item.master_root ? formatHash(item.master_root, 10) : 'N/A';
-            const actor = item.actor || 'system';
+    // Render Sibling Panel
+    function renderSiblingPanel() {
+        if (!currentTreeSnapshot || !selectedUserId || !selectedLeafId) return;
+        const user = currentTreeSnapshot.users.find(u => u.user_id === selectedUserId);
+        if (!user || !user.leaves) return;
 
+        const leafIndex = user.leaf_ids.indexOf(selectedLeafId);
+        const leaf = user.leaves.find(l => l.leaf_id === selectedLeafId);
+        if (leafIndex === -1 || !leaf) return;
+
+        const userPath = computeProofPath(user.levels, leafIndex);
+
+        // Master tree path
+        const userMasterIdx = currentTreeSnapshot.master_user_ids.indexOf(selectedUserId);
+        const masterPath = userMasterIdx !== -1 ? computeProofPath(currentTreeSnapshot.master_levels, userMasterIdx) : [];
+
+        const panel = document.getElementById('inspector-content');
+        let html = `
+            <div style="background:var(--merkle-surface2); border:1px solid var(--merkle-border); border-radius:6px; padding:10px; font-size:12px;">
+                <div style="font-weight:700; color:var(--merkle-leaf); margin-bottom:4px;">Leaf: ${leaf.leaf_id} (v${leaf.version})</div>
+                <div style="color:var(--merkle-text-muted); font-size:11px; margin-bottom:4px;">Time: ${leaf.timestamp ? new Date(leaf.timestamp).toLocaleString() : 'N/A'}</div>
+                <div style="font-family:ui-monospace, monospace; font-size:11px; color:var(--merkle-text); word-break:break-all; cursor:pointer;" onclick="copyHashText('${leaf.combined_hash}', 'Leaf Hash')" title="Click to copy full hash">
+                    ${leaf.combined_hash}
+                </div>
+            </div>
+            <div style="font-weight:700; font-size:12px; color:var(--merkle-text-muted); margin-top:8px;">User Tree Siblings:</div>
+        `;
+
+        userPath.forEach((step, idx) => {
+            const dirLabel = step.isDup ? 'DUP (Self)' : (step.direction === 'left' ? 'LEFT' : 'RIGHT');
             html += `
-                <div class="timeline-item">
-                    <div class="timeline-time">${dateStr} &bull; ${actor}</div>
-                    <div class="timeline-event">${eventStr}</div>
-                    <div class="timeline-hash" title="${item.master_root || ''}">${hash}</div>
+                <div class="sibling-step">
+                    <div class="sibling-step-header">
+                        <span>Level ${step.level}</span>
+                        <span style="color:var(--merkle-branch); font-size:10px; font-weight:700;">${dirLabel}</span>
+                    </div>
+                    <div class="sibling-hash" onclick="copyHashText('${step.siblingHash}', 'Sibling Hash')" title="Click to copy full hash">
+                        ${step.siblingHash}
+                    </div>
                 </div>
             `;
         });
-        container.innerHTML = html;
+
+        html += `<div style="font-weight:700; font-size:12px; color:var(--merkle-text-muted); margin-top:8px;">Master Tree Siblings:</div>`;
+        masterPath.forEach((step, idx) => {
+            const dirLabel = step.isDup ? 'DUP (Self)' : (step.direction === 'left' ? 'LEFT' : 'RIGHT');
+            html += `
+                <div class="sibling-step">
+                    <div class="sibling-step-header">
+                        <span>Master Level ${step.level}</span>
+                        <span style="color:var(--merkle-root); font-size:10px; font-weight:700;">${dirLabel}</span>
+                    </div>
+                    <div class="sibling-hash" onclick="copyHashText('${step.siblingHash}', 'Sibling Hash')" title="Click to copy full hash">
+                        ${step.siblingHash}
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+            <div style="margin-top:8px; padding:8px; border-radius:6px; background:rgba(46,139,87,0.1); border:1px solid var(--merkle-leaf); font-size:12px; color:var(--merkle-leaf); font-weight:600; text-align:center;">
+                Cryptographic Inclusion Verified
+            </div>
+        `;
+
+        panel.innerHTML = html;
     }
 
-    function renderTree(data, highlightDiff = false) {
-        const usersContainer = document.getElementById('users-container');
-        const capNotice = document.getElementById('cap-notice');
-        const capText = document.getElementById('cap-text');
+    // Layout builder for top-down binary Merkle tree
+    function layoutTree(levels, nodeWidth, nodeHeight, padX = 24, padY = 32, levelGapY = 56) {
+        // levels[0] is bottom (leaves / subroots), levels[levels.length - 1] is root
+        const numLevels = levels.length;
+        const bottomCount = Math.max(1, levels[0].length);
+        const colWidth = nodeWidth + padX;
+        const totalWidth = Math.max(760, bottomCount * colWidth + padX * 2);
+        const totalHeight = Math.max(200, (numLevels - 1) * levelGapY + nodeHeight + padY * 2);
 
-        if (!data || !data.users || data.users.length === 0) {
-            usersContainer.innerHTML = '<div class="empty-state">Merkle Tree is empty. No user leaves registered yet.</div>';
-            capNotice.style.display = 'none';
+        // Compute bottom coordinates
+        const coords = [];
+        const level0Coords = [];
+        for (let i = 0; i < bottomCount; i++) {
+            const x = padX + i * colWidth + colWidth / 2;
+            level0Coords.push(x);
+        }
+        coords.push(level0Coords);
+
+        // Compute parent x = mean of child x
+        for (let l = 1; l < numLevels; l++) {
+            const prevCoords = coords[l - 1];
+            const currLevelCount = levels[l].length;
+            const levelCoords = [];
+            for (let j = 0; j < currLevelCount; j++) {
+                const c1 = j * 2;
+                const c2 = j * 2 + 1;
+                let parentX;
+                if (c2 < prevCoords.length) {
+                    parentX = (prevCoords[c1] + prevCoords[c2]) / 2;
+                } else if (c1 < prevCoords.length) {
+                    parentX = prevCoords[c1];
+                } else {
+                    parentX = prevCoords[prevCoords.length - 1];
+                }
+                levelCoords.push(parentX);
+            }
+            coords.push(levelCoords);
+        }
+
+        // Compute Y for each level (top-down: level numLevels - 1 is top, level 0 is bottom)
+        const yCoords = [];
+        for (let l = 0; l < numLevels; l++) {
+            const topDownIndex = (numLevels - 1) - l;
+            const y = padY + topDownIndex * levelGapY + nodeHeight / 2;
+            yCoords.push(y);
+        }
+
+        return { coords, yCoords, totalWidth, totalHeight };
+    }
+
+    // Render Master Tree SVG
+    function renderMasterTree(data, changedPathNodes = null) {
+        const svg = document.getElementById('master-tree-svg');
+        if (!data || !data.master_levels || data.master_levels.length === 0) {
+            svg.setAttribute('width', '800');
+            svg.setAttribute('height', '120');
+            svg.innerHTML = '<text x="400" y="60" text-anchor="middle" fill="var(--merkle-text-muted)" font-size="13">No Merkle data available</text>';
             return;
         }
 
-        const users = data.users;
-        const NODE_CAP = 200;
-        let totalNodesCount = 1; // Master node
-        users.forEach(u => {
-            totalNodesCount += 1 + (u.leaves ? u.leaves.length : 0);
-        });
-
-        const shouldCap = !showAllNodes && totalNodesCount > NODE_CAP;
-        if (shouldCap) {
-            capText.textContent = `Display capped at 200 of ${totalNodesCount} nodes.`;
-            capNotice.style.display = 'block';
+        const totalUsers = data.users ? data.users.length : 0;
+        const paginationBox = document.getElementById('users-pagination-controls');
+        if (totalUsers > USERS_PER_PAGE) {
+            paginationBox.style.display = 'flex';
+            const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
+            document.getElementById('users-page-indicator').textContent = `Page ${usersCurrentPage} of ${totalPages} (${totalUsers} users)`;
+            document.getElementById('users-prev-btn').disabled = (usersCurrentPage <= 1);
+            document.getElementById('users-next-btn').disabled = (usersCurrentPage >= totalPages);
         } else {
-            capNotice.style.display = 'none';
+            paginationBox.style.display = 'none';
         }
 
-        // Build existing expanded state map so polling doesn't collapse user's view
-        const expandedMap = {};
-        document.querySelectorAll('.user-branch').forEach(b => {
-            const uid = b.getAttribute('data-userid');
-            if (uid && b.classList.contains('expanded')) {
-                expandedMap[uid] = true;
+        const levels = data.master_levels;
+        const layout = layoutTree(levels, 120, 36, 20, 24, 60);
+        svg.setAttribute('width', layout.totalWidth);
+        svg.setAttribute('height', layout.totalHeight);
+        svg.setAttribute('viewBox', `0 0 ${layout.totalWidth} ${layout.totalHeight}`);
+
+        // Set of highlighted nodes from leaf selection
+        const selectedPathNodes = new Set();
+        if (selectedUserId) {
+            const uIdx = data.master_user_ids.indexOf(selectedUserId);
+            if (uIdx !== -1) {
+                let currIdx = uIdx;
+                for (let l = 0; l < levels.length; l++) {
+                    selectedPathNodes.add(`${l}_${currIdx}`);
+                    currIdx = Math.floor(currIdx / 2);
+                }
             }
+        }
+
+        let svgHtml = '';
+
+        // Draw edges
+        for (let l = 0; l < levels.length - 1; l++) {
+            const nextL = l + 1;
+            const y1 = layout.yCoords[l];
+            const y2 = layout.yCoords[nextL];
+
+            for (let c1 = 0; c1 < levels[l].length; c1 += 2) {
+                const parentIdx = Math.floor(c1 / 2);
+                if (parentIdx >= layout.coords[nextL].length) break;
+
+                const xParent = layout.coords[nextL][parentIdx];
+                const x1 = layout.coords[l][c1];
+                const c2 = c1 + 1;
+
+                const isC1Highlighted = selectedPathNodes.has(`${l}_${c1}`) || (changedPathNodes && changedPathNodes.has(`master_${l}_${c1}`));
+                const edge1Class = isC1Highlighted ? 'svg-edge path-highlight' : 'svg-edge';
+                svgHtml += `<line class="${edge1Class}" x1="${x1}" y1="${y1 - 18}" x2="${xParent}" y2="${y2 + 18}" />`;
+
+                if (c2 < levels[l].length) {
+                    const x2 = layout.coords[l][c2];
+                    const isC2Highlighted = selectedPathNodes.has(`${l}_${c2}`) || (changedPathNodes && changedPathNodes.has(`master_${l}_${c2}`));
+                    const edge2Class = isC2Highlighted ? 'svg-edge path-highlight' : 'svg-edge';
+                    svgHtml += `<line class="${edge2Class}" x1="${x2}" y1="${y1 - 18}" x2="${xParent}" y2="${y2 + 18}" />`;
+                } else {
+                    // Odd node duplicated edge
+                    svgHtml += `
+                        <path class="svg-edge dup-edge" d="M ${x1 + 18} ${y1} C ${x1 + 45} ${y1 - 20}, ${x1 + 45} ${y1 + 20}, ${x1 + 18} ${y1 + 10}" />
+                        <text x="${x1 + 48}" y="${y1 + 4}" fill="var(--merkle-branch)" font-size="10" font-weight="700">dup</text>
+                    `;
+                }
+            }
+        }
+
+        // Draw nodes
+        for (let l = levels.length - 1; l >= 0; l--) {
+            const isRoot = (l === levels.length - 1);
+            const isSubroot = (l === 0);
+            const y = layout.yCoords[l];
+
+            for (let i = 0; i < levels[l].length; i++) {
+                const x = layout.coords[l][i];
+                const hash = levels[l][i];
+                const isSelected = selectedPathNodes.has(`${l}_${i}`);
+                const isChanged = changedPathNodes && changedPathNodes.has(`master_${l}_${i}`);
+                const highlightClass = (isSelected || isChanged) ? 'path-highlight' : '';
+
+                if (isRoot) {
+                    // Master Root node
+                    const shortH = formatHash(hash, 10);
+                    svgHtml += `
+                        <g class="svg-node" onclick="copyHashText('${hash}', 'Master Root')"
+                           onmouseenter="showTooltip(event, '<strong>Master Root</strong><br>Hash: ${hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <rect class="${highlightClass}" x="${x - 70}" y="${y - 18}" width="140" height="36" rx="18"
+                                  fill="var(--merkle-root)" stroke="#FFFFFF" stroke-width="2"/>
+                            <text x="${x}" y="${y - 2}" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700">MASTER ROOT</text>
+                            <text x="${x}" y="${y + 11}" text-anchor="middle" fill="#FFFFFF" font-size="10" font-family="monospace">${shortH}</text>
+                        </g>
+                    `;
+                } else if (isSubroot) {
+                    // Subroot node
+                    const uId = data.master_user_ids[i] || `user_${i}`;
+                    const uObj = data.users ? data.users.find(u => u.user_id === uId) : null;
+                    const leafCnt = uObj ? (uObj.leaf_count || (uObj.leaves ? uObj.leaves.length : 0)) : 0;
+                    const isCurrentSelectedUser = (selectedUserId === uId);
+                    const strokeColor = isCurrentSelectedUser ? 'var(--merkle-root)' : 'var(--merkle-branch)';
+                    const strokeW = isCurrentSelectedUser ? '3' : '2';
+
+                    svgHtml += `
+                        <g class="svg-node" onclick="selectUser('${uId}', true)"
+                           onmouseenter="showTooltip(event, '<strong>User: ${uId}</strong><br>Leaves: ${leafCnt}<br>Subroot: ${hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <rect class="${highlightClass}" x="${x - 55}" y="${y - 18}" width="110" height="36" rx="8"
+                                  fill="var(--merkle-surface)" stroke="${strokeColor}" stroke-width="${strokeW}"/>
+                            <text x="${x}" y="${y - 2}" text-anchor="middle" fill="var(--merkle-text)" font-size="11" font-weight="700">${uId}</text>
+                            <text x="${x}" y="${y + 11}" text-anchor="middle" fill="var(--merkle-branch)" font-size="10" font-weight="600">${leafCnt} leaves</text>
+                        </g>
+                    `;
+                } else {
+                    // Internal Merkle node
+                    svgHtml += `
+                        <g class="svg-node" onclick="copyHashText('${hash}', 'Internal Node')"
+                           onmouseenter="showTooltip(event, '<strong>Internal Node</strong><br>Hash: ${hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <circle class="${highlightClass}" cx="${x}" cy="${y}" r="14"
+                                    fill="var(--merkle-internal-fill)" stroke="var(--merkle-internal-stroke)" stroke-width="2"/>
+                            <text x="${x}" y="${y + 4}" text-anchor="middle" fill="var(--merkle-branch)" font-size="9" font-weight="700">H</text>
+                        </g>
+                    `;
+                }
+            }
+        }
+
+        svg.innerHTML = svgHtml;
+    }
+
+    // Render User Subtree SVG
+    function renderUserSubtree(changedLeafIds = null, changedPathNodes = null) {
+        const svg = document.getElementById('user-tree-svg');
+        if (!currentTreeSnapshot || !currentTreeSnapshot.users || currentTreeSnapshot.users.length === 0) {
+            svg.setAttribute('width', '800');
+            svg.setAttribute('height', '120');
+            svg.innerHTML = '<text x="400" y="60" text-anchor="middle" fill="var(--merkle-text-muted)" font-size="13">No user data available</text>';
+            return;
+        }
+
+        const user = currentTreeSnapshot.users.find(u => u.user_id === selectedUserId);
+        if (!user || !user.leaves || user.leaves.length === 0) {
+            svg.setAttribute('width', '800');
+            svg.setAttribute('height', '120');
+            svg.innerHTML = `<text x="400" y="60" text-anchor="middle" fill="var(--merkle-text-muted)" font-size="13">User '${selectedUserId || 'None'}' has no leaf records.</text>`;
+            return;
+        }
+
+        const capBox = document.getElementById('leaves-cap-controls');
+        let displayedLeaves = user.leaves;
+        let displayedLevels = user.levels;
+        const totalLeaves = user.leaves.length;
+
+        if (totalLeaves > 32 && !showAllLeaves) {
+            capBox.style.display = 'flex';
+            document.getElementById('leaves-cap-text').textContent = `Showing newest 32 of ${totalLeaves} leaves`;
+            displayedLeaves = user.leaves.slice(-32);
+            // compute temporary level view for newest 32
+            // Note: user.levels includes all, for display of newest 32 we take slice
+        } else if (totalLeaves > 32 && showAllLeaves) {
+            capBox.style.display = 'flex';
+            document.getElementById('leaves-cap-text').textContent = `Showing all ${totalLeaves} leaves`;
+        } else {
+            capBox.style.display = 'none';
+        }
+
+        const levels = displayedLevels;
+        const layout = layoutTree(levels, 100, 36, 16, 24, 60);
+        svg.setAttribute('width', layout.totalWidth);
+        svg.setAttribute('height', layout.totalHeight);
+        svg.setAttribute('viewBox', `0 0 ${layout.totalWidth} ${layout.totalHeight}`);
+
+        // Set of highlighted nodes from leaf selection
+        const selectedLeafPathNodes = new Set();
+        if (selectedLeafId) {
+            const leafIdx = user.leaf_ids.indexOf(selectedLeafId);
+            if (leafIdx !== -1) {
+                let currIdx = leafIdx;
+                for (let l = 0; l < levels.length; l++) {
+                    selectedLeafPathNodes.add(`${l}_${currIdx}`);
+                    currIdx = Math.floor(currIdx / 2);
+                }
+            }
+        }
+
+        let svgHtml = '';
+
+        // Draw edges
+        for (let l = 0; l < levels.length - 1; l++) {
+            const nextL = l + 1;
+            const y1 = layout.yCoords[l];
+            const y2 = layout.yCoords[nextL];
+
+            for (let c1 = 0; c1 < levels[l].length; c1 += 2) {
+                const parentIdx = Math.floor(c1 / 2);
+                if (parentIdx >= layout.coords[nextL].length) break;
+
+                const xParent = layout.coords[nextL][parentIdx];
+                const x1 = layout.coords[l][c1];
+                const c2 = c1 + 1;
+
+                const isC1Highlighted = selectedLeafPathNodes.has(`${l}_${c1}`) || (changedPathNodes && changedPathNodes.has(`user_${l}_${c1}`));
+                const edge1Class = isC1Highlighted ? 'svg-edge path-highlight-green' : 'svg-edge';
+                svgHtml += `<line class="${edge1Class}" x1="${x1}" y1="${y1 - 18}" x2="${xParent}" y2="${y2 + 18}" />`;
+
+                if (c2 < levels[l].length) {
+                    const x2 = layout.coords[l][c2];
+                    const isC2Highlighted = selectedLeafPathNodes.has(`${l}_${c2}`) || (changedPathNodes && changedPathNodes.has(`user_${l}_${c2}`));
+                    const edge2Class = isC2Highlighted ? 'svg-edge path-highlight-green' : 'svg-edge';
+                    svgHtml += `<line class="${edge2Class}" x1="${x2}" y1="${y1 - 18}" x2="${xParent}" y2="${y2 + 18}" />`;
+                } else {
+                    // Odd node duplicated edge
+                    svgHtml += `
+                        <path class="svg-edge dup-edge" d="M ${x1 + 16} ${y1} C ${x1 + 40} ${y1 - 18}, ${x1 + 40} ${y1 + 18}, ${x1 + 16} ${y1 + 8}" />
+                        <text x="${x1 + 42}" y="${y1 + 4}" fill="var(--merkle-branch)" font-size="10" font-weight="700">dup</text>
+                    `;
+                }
+            }
+        }
+
+        // Draw nodes
+        for (let l = levels.length - 1; l >= 0; l--) {
+            const isSubrootTop = (l === levels.length - 1);
+            const isLeafBottom = (l === 0);
+            const y = layout.yCoords[l];
+
+            for (let i = 0; i < levels[l].length; i++) {
+                const x = layout.coords[l][i];
+                const hash = levels[l][i];
+                const isSelected = selectedLeafPathNodes.has(`${l}_${i}`);
+                const isChanged = changedPathNodes && changedPathNodes.has(`user_${l}_${i}`);
+                const highlightClass = (isSelected || isChanged) ? 'path-highlight-green' : '';
+
+                if (isSubrootTop) {
+                    // Top user subroot node
+                    svgHtml += `
+                        <g class="svg-node" onclick="copyHashText('${user.subroot_hash}', 'Subroot Hash')"
+                           onmouseenter="showTooltip(event, '<strong>${user.user_id} Subroot</strong><br>Hash: ${user.subroot_hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <rect class="${highlightClass}" x="${x - 60}" y="${y - 18}" width="120" height="36" rx="18"
+                                  fill="var(--merkle-surface)" stroke="var(--merkle-branch)" stroke-width="2"/>
+                            <text x="${x}" y="${y - 2}" text-anchor="middle" fill="var(--merkle-text)" font-size="11" font-weight="700">${user.user_id}</text>
+                            <text x="${x}" y="${y + 11}" text-anchor="middle" fill="var(--merkle-branch)" font-size="10" font-family="monospace">${formatHash(user.subroot_hash, 8)}</text>
+                        </g>
+                    `;
+                } else if (isLeafBottom) {
+                    // Leaf node
+                    const leafObj = user.leaves[i];
+                    const leafId = leafObj ? leafObj.leaf_id : `leaf_${i}`;
+                    const ver = leafObj ? leafObj.version : 1;
+                    const isNewPulse = changedLeafIds && changedLeafIds.has(leafId);
+                    const pulseClass = isNewPulse ? 'leaf-pulse' : '';
+                    const leafSelectedBorder = (selectedLeafId === leafId) ? 'stroke="#1F2A37" stroke-width="3"' : 'stroke="#FFFFFF" stroke-width="1.5"';
+
+                    svgHtml += `
+                        <g class="svg-node ${pulseClass}" onclick="selectLeaf('${leafId}')"
+                           onmouseenter="showTooltip(event, '<strong>Leaf: ${leafId}</strong><br>Version: v${ver}<br>Hash: ${hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <rect class="${highlightClass}" x="${x - 48}" y="${y - 18}" width="96" height="36" rx="6"
+                                  fill="var(--merkle-leaf)" ${leafSelectedBorder}/>
+                            <text x="${x}" y="${y - 2}" text-anchor="middle" fill="#FFFFFF" font-size="11" font-weight="700">${leafId} v${ver}</text>
+                            <text x="${x}" y="${y + 11}" text-anchor="middle" fill="#FFFFFF" font-size="10" font-family="monospace">${formatHash(hash, 8)}</text>
+                        </g>
+                    `;
+                } else {
+                    // Internal node
+                    svgHtml += `
+                        <g class="svg-node" onclick="copyHashText('${hash}', 'Internal User Node')"
+                           onmouseenter="showTooltip(event, '<strong>Internal User Node</strong><br>Hash: ${hash}')"
+                           onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()">
+                            <circle class="${highlightClass}" cx="${x}" cy="${y}" r="13"
+                                    fill="var(--merkle-internal-fill)" stroke="var(--merkle-internal-stroke)" stroke-width="2"/>
+                            <text x="${x}" y="${y + 4}" text-anchor="middle" fill="var(--merkle-branch)" font-size="9" font-weight="700">H</text>
+                        </g>
+                    `;
+                }
+            }
+        }
+
+        svg.innerHTML = svgHtml;
+    }
+
+    // Render Timeline
+    function renderTimeline(historyList) {
+        const container = document.getElementById('timeline-list');
+        const countSpan = document.getElementById('timeline-count-badge');
+        const moreBtn = document.getElementById('timeline-more-btn');
+
+        if (!historyList || historyList.length === 0) {
+            container.innerHTML = '<div style="color:var(--merkle-text-muted); font-size:12px; padding:12px;">No root changes recorded.</div>';
+            countSpan.textContent = '0 events';
+            moreBtn.style.display = 'none';
+            return;
+        }
+
+        countSpan.textContent = `${historyList.length} events`;
+        if (historyList.length > 10) {
+            moreBtn.style.display = 'inline-flex';
+        } else {
+            moreBtn.style.display = 'none';
+        }
+
+        const itemsToShow = timelineExpanded ? historyList : historyList.slice(0, 10);
+        let html = '';
+
+        itemsToShow.forEach(item => {
+            const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'N/A';
+            const oldHash = item.old_master_root;
+            const newHash = item.new_master_root;
+
+            html += `
+                <div class="timeline-row">
+                    <div class="timeline-meta">
+                        <span style="font-weight:600; color:var(--merkle-text);">${ts}</span>
+                        <span>User: <strong>${item.user_id || 'system'}</strong></span>
+                        <span>Leaf: <strong>${item.leaf_id || 'N/A'}</strong></span>
+                        <span style="color:var(--merkle-text-muted); font-size:11px;">Event: ${item.event_id || 'N/A'}</span>
+                    </div>
+                    <div class="timeline-chips">
+                        <span class="chip-root old" onclick="copyHashText('${oldHash}', 'Old Master Root')" title="Click to copy">${formatHash(oldHash, 8)}</span>
+                        <span style="color:var(--merkle-branch); font-weight:700;">&rarr;</span>
+                        <span class="chip-root new" onclick="copyHashText('${newHash}', 'New Master Root')" title="Click to copy">${formatHash(newHash, 8)}</span>
+                    </div>
+                </div>
+            `;
         });
 
-        // Compute diffs if highlightDiff is true
-        const changedUsers = new Set();
-        const changedLeaves = new Set();
-        if (highlightDiff && previousTreeState && previousTreeState.users) {
-            const prevUserMap = {};
-            previousTreeState.users.forEach(u => { prevUserMap[u.user_id] = u; });
+        container.innerHTML = html;
+    }
 
-            users.forEach(u => {
+    // Trigger Root changed animation
+    function triggerRootChangedAlert() {
+        const badge = document.getElementById('root-change-badge');
+        badge.style.display = 'inline-flex';
+        badge.style.animation = 'none';
+        badge.offsetHeight; // reflow
+        badge.style.animation = 'pulseFade 2.5s forwards ease';
+        setTimeout(() => { badge.style.display = 'none'; }, 2600);
+    }
+
+    // Compare new and previous snapshot to identify changed path
+    function computeDiffHighlights(prevData, newData) {
+        if (!prevData || !newData) return { changedLeafIds: new Set(), changedPathNodes: new Set() };
+
+        const changedLeafIds = new Set();
+        const changedUserIds = new Set();
+
+        const prevUserMap = {};
+        if (prevData.users) {
+            prevData.users.forEach(u => { prevUserMap[u.user_id] = u; });
+        }
+
+        if (newData.users) {
+            newData.users.forEach(u => {
                 const prevU = prevUserMap[u.user_id];
-                if (!prevU || prevU.subroot_hash !== u.subroot_hash) {
-                    changedUsers.add(u.user_id);
-                }
                 const prevLeafMap = {};
                 if (prevU && prevU.leaves) {
                     prevU.leaves.forEach(l => { prevLeafMap[l.leaf_id] = l.combined_hash; });
@@ -552,111 +1273,39 @@
                 if (u.leaves) {
                     u.leaves.forEach(l => {
                         if (!prevLeafMap[l.leaf_id] || prevLeafMap[l.leaf_id] !== l.combined_hash) {
-                            changedLeaves.add(l.leaf_id);
+                            changedLeafIds.add(l.leaf_id);
+                            changedUserIds.add(u.user_id);
                         }
                     });
                 }
             });
         }
 
-        let renderedCount = 1;
-        let html = '';
-
-        for (const user of users) {
-            if (shouldCap && renderedCount >= NODE_CAP) break;
-            renderedCount += 1;
-
-            const isUserDiff = changedUsers.has(user.user_id);
-            const isExpanded = expandedMap[user.user_id] || false;
-            const diffClass = isUserDiff ? 'diff-highlight' : '';
-
-            let leavesHtml = '';
-            if (user.leaves && user.leaves.length > 0) {
-                for (const leaf of user.leaves) {
-                    if (shouldCap && renderedCount >= NODE_CAP) break;
-                    renderedCount += 1;
-
-                    const isLeafDiff = changedLeaves.has(leaf.leaf_id);
-                    const leafDiffClass = isLeafDiff ? 'diff-highlight' : '';
-                    const leafHashShort = formatHash(leaf.combined_hash, 10);
-                    const fullLeafHash = leaf.combined_hash || '';
-                    const ts = leaf.timestamp ? new Date(leaf.timestamp).toLocaleString() : 'N/A';
-                    const ver = leaf.version !== undefined ? leaf.version : 1;
-
-                    leavesHtml += `
-                        <div class="node-card leaf-node ${leafDiffClass}">
-                            <div style="font-weight:600; color:var(--text);">${leaf.leaf_id}</div>
-                            <div style="font-family:ui-monospace, monospace; color:var(--accent); font-size:11px; margin-top:2px;">${leafHashShort}</div>
-                            <div class="custom-tooltip">
-                                Version: ${ver}<br>
-                                Time: ${ts}<br>
-                                Hash: ${fullLeafHash}
-                            </div>
-                        </div>
-                    `;
+        // Trace paths for changed users and leaves
+        const changedPathNodes = new Set();
+        changedUserIds.forEach(uId => {
+            const uIdx = newData.master_user_ids.indexOf(uId);
+            if (uIdx !== -1) {
+                let currIdx = uIdx;
+                for (let l = 0; l < newData.master_levels.length; l++) {
+                    changedPathNodes.add(`master_${l}_${currIdx}`);
+                    currIdx = Math.floor(currIdx / 2);
                 }
-            } else {
-                leavesHtml = '<div style="color:var(--muted); font-size:12px; grid-column: 1/-1;">No leaf nodes for this user.</div>';
             }
+        });
 
-            html += `
-                <div class="user-branch ${isExpanded ? 'expanded' : ''}" data-userid="${user.user_id}">
-                    <div class="node-card subroot-node ${diffClass}" onclick="toggleUserBranch(this)">
-                        <div class="subroot-info">
-                            <svg class="toggle-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="9 18 15 12 9 6"></polyline>
-                            </svg>
-                            <div>
-                                <span style="font-weight: 600; color: var(--text);">${user.user_id}</span>
-                                <span style="font-family:ui-monospace, monospace; font-size: 11px; color: var(--muted); margin-left: 8px;">
-                                    ${formatHash(user.subroot_hash, 10)}
-                                </span>
-                            </div>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <span class="badge-count">${user.leaf_count || (user.leaves ? user.leaves.length : 0)} leaves</span>
-                        </div>
-                    </div>
-                    <div class="leaves-container">
-                        ${leavesHtml}
-                    </div>
-                </div>
-            `;
-        }
-
-        usersContainer.innerHTML = html;
+        return { changedLeafIds, changedPathNodes };
     }
 
-    function renderAllNodes() {
-        showAllNodes = true;
-        if (cachedData) {
-            renderTree(cachedData, false);
-        }
-    }
-
-    function triggerRootChangedAnimation() {
-        const badge = document.getElementById('root-change-badge');
-        badge.style.display = 'inline-flex';
-        // Restart animation
-        badge.style.animation = 'none';
-        badge.offsetHeight; /* trigger reflow */
-        badge.style.animation = 'fadeInOut 2.5s forwards ease';
-        setTimeout(() => { badge.style.display = 'none'; }, 2600);
-
-        // Highlight master node
-        const masterNode = document.getElementById('master-node');
-        masterNode.classList.remove('diff-highlight');
-        masterNode.offsetHeight;
-        masterNode.classList.add('diff-highlight');
-        setTimeout(() => { masterNode.classList.remove('diff-highlight'); }, 1500);
-    }
-
+    // Fetch and poll Merkle data
     async function fetchMerkleData(manual = false) {
         const errorBanner = document.getElementById('merkle-error-banner');
         const errorMessage = document.getElementById('error-message');
-        const masterDisplay = document.getElementById('master-root-display');
-        const masterNodeHash = document.getElementById('master-node-hash');
         const liveIndicator = document.getElementById('live-indicator');
+        const masterDisplay = document.getElementById('master-root-val');
+        const prevDisplay = document.getElementById('prev-root-val');
+        const masterNode = document.getElementById('master-root-node');
+        const prevNode = document.getElementById('prev-root-node');
 
         try {
             const resp = await fetch('/admin/merkle/data');
@@ -669,7 +1318,7 @@
                 errorBanner.style.display = 'block';
                 errorMessage.textContent = data.error;
                 liveIndicator.className = 'badge-status';
-                liveIndicator.innerHTML = '<span style="color:var(--danger)">Offline</span>';
+                liveIndicator.innerHTML = '<span style="color:var(--merkle-root)">Offline</span>';
                 return;
             }
 
@@ -677,39 +1326,76 @@
             liveIndicator.className = 'badge-status live';
             liveIndicator.innerHTML = '<span class="pulse-dot"></span><span>Live (5s)</span>';
 
-            const newRoot = data.master_root || "null";
-            fullMasterRoot = newRoot;
-            masterDisplay.textContent = formatHash(newRoot, 12);
-            masterNodeHash.textContent = formatHash(newRoot, 16);
+            const newMaster = data.master_root || "genesis";
+            const prevMaster = data.previous_master_root || "genesis";
+
+            masterDisplay.textContent = formatHash(newMaster, 10);
+            prevDisplay.textContent = formatHash(prevMaster, 10);
+            masterNode.dataset.hash = newMaster;
+            prevNode.dataset.hash = prevMaster;
 
             let rootChanged = false;
-            if (currentMasterRoot !== null && currentMasterRoot !== newRoot) {
+            if (previousTreeSnapshot && previousTreeSnapshot.master_root !== newMaster) {
                 rootChanged = true;
-                triggerRootChangedAnimation();
+                triggerRootChangedAlert();
             }
 
-            renderTimeline(data.root_history || []);
-            renderTree(data, rootChanged);
+            // Auto-select user of newest event if none selected yet or not manually overridden
+            if (!userManuallySelected || !selectedUserId) {
+                if (data.root_history && data.root_history.length > 0 && data.root_history[0].user_id) {
+                    selectedUserId = data.root_history[0].user_id;
+                } else if (data.users && data.users.length > 0) {
+                    selectedUserId = data.users[0].user_id;
+                }
+            }
 
-            previousTreeState = data;
-            cachedData = data;
-            currentMasterRoot = newRoot;
+            if (selectedUserId) {
+                document.getElementById('connector-user-id').textContent = selectedUserId;
+                document.getElementById('selected-user-heading').textContent = selectedUserId;
+            }
+
+            // Diff calculations
+            let diffHighlights = { changedLeafIds: new Set(), changedPathNodes: new Set() };
+            if (previousTreeSnapshot && rootChanged) {
+                diffHighlights = computeDiffHighlights(previousTreeSnapshot, data);
+            }
+
+            currentTreeSnapshot = data;
+
+            // Render trees
+            renderMasterTree(data, diffHighlights.changedPathNodes);
+            renderUserSubtree(diffHighlights.changedLeafIds, diffHighlights.changedPathNodes);
+            renderTimeline(data.root_history || []);
+
+            if (selectedLeafId) {
+                renderSiblingPanel();
+            }
+
+            // If 1.5s highlight applied, clear it after 1500 ms
+            if (diffHighlights.changedPathNodes.size > 0) {
+                setTimeout(() => {
+                    renderMasterTree(currentTreeSnapshot);
+                    renderUserSubtree();
+                }, 1500);
+            }
+
+            previousTreeSnapshot = data;
         } catch (err) {
-            console.warn('Merkle polling error:', err);
+            console.warn('Merkle poll error:', err);
             errorBanner.style.display = 'block';
             errorMessage.textContent = 'M3 sidecar unreachable or network failure.';
             liveIndicator.className = 'badge-status';
-            liveIndicator.innerHTML = '<span style="color:var(--danger)">Unreachable</span>';
+            liveIndicator.innerHTML = '<span style="color:var(--merkle-root)">Unreachable</span>';
         }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         fetchMerkleData();
-        pollInterval = setInterval(() => { fetchMerkleData(); }, 5000);
+        pollTimer = setInterval(() => { fetchMerkleData(); }, 5000);
     });
 
     window.addEventListener('beforeunload', () => {
-        if (pollInterval) clearInterval(pollInterval);
+        if (pollTimer) clearInterval(pollTimer);
     });
 </script>
 {% endblock %}
