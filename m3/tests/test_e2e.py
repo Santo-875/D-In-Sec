@@ -15,6 +15,11 @@ from m3.crypto_signer import (
 class TestM3E2E(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ["M3_API_KEYS"] = json.dumps({
+            "dev-admin-key": "ADMIN",
+            "dev-service-key": "SERVICE",
+            "dev-viewer-key": "VIEWER"
+        })
         cls.db_path = f"test_m3_e2e_{uuid.uuid4().hex[:8]}.db"
         cls.anchor_path = f"test_anchor_e2e_{uuid.uuid4().hex[:8]}.log"
 
