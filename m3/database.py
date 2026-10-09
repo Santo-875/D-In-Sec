@@ -600,3 +600,23 @@ class M3Database:
             with conn:
                 cursor = conn.execute("UPDATE alerts SET resolved = 1 WHERE alert_id = ?", (alert_id,))
                 return cursor.rowcount > 0
+
+    def data_version(self) -> int:
+        """
+        Returns a monotonically increasing or changing integer version of the database state.
+        Combines SQLite PRAGMA data_version with counts and MAX(rowid) of merkle_leaves and audit_events.
+        """
+        with closing(self.get_connection()) as conn:
+            cursor = conn.cursor()
+            try:
+                dv = int(cursor.execute("PRAGMA data_version").fetchone()[0])
+            except Exception:
+                dv = 0
+            try:
+                cursor.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM merkle_leaves")
+                ml_cnt, ml_max = cursor.fetchone()
+                cursor.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM audit_events")
+                ae_cnt, ae_max = cursor.fetchone()
+                return dv + (int(ml_cnt) + int(ml_max) + int(ae_cnt) + int(ae_max)) * 100000000
+            except Exception:
+                return dv

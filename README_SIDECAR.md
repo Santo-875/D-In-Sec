@@ -80,8 +80,10 @@ python m3/api.py
 ### 3. Production Deployment (Gunicorn)
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5001 "m3.api:create_m3_app()" --timeout 120
+gunicorn -w 1 --threads 8 -b 0.0.0.0:5001 "m3.api:create_m3_app()" --timeout 120
 ```
+
+> **Note on Worker Model**: Deploy with `-w 1 --threads 8` because Merkle tree state and append-only audit caches are held in-memory per-process. A single worker with multi-threading maintains state consistency across requests while handling concurrent traffic. For cross-worker sync, automated staleness detection via database versions refreshes in-memory structures.
 
 ---
 

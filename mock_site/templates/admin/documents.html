@@ -42,10 +42,17 @@
                     {% else %}
                         <span class="badge badge-amber">Pending</span>
                     {% endif %}
+                    {% if not doc.m3_synced %}
+                        <span class="badge badge-amber" style="margin-top:4px;display:inline-block;">Not anchored</span>
+                    {% endif %}
                 </td>
                 <td style="font-size:12px;color:var(--muted)">{{ doc.admin_note or '-' }}</td>
                 <td>
+                    {% if doc.status == 'Pending' %}
                     <button class="btn btn-sm btn-primary" onclick="openReviewModal({{ doc.id }}, '{{ doc.doc_type|escape }}', '{{ doc.file_name|escape }}', '{{ username|escape }}', '{{ doc.user_id }}', '{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}', '{{ doc.status }}', this)">Review</button>
+                    {% else %}
+                    <span style="font-size:12px;color:var(--muted)">Decided</span>
+                    {% endif %}
                 </td>
             </tr>
             {% else %}
@@ -104,6 +111,13 @@
                     <div id="integrity-fail-banner" style="display:none;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:8px 10px;border-radius:6px;font-size:11px;margin-top:8px;font-weight:500;">
                         ⚠ Integrity failed: Cryptographic verification mismatch. Document approval is disabled.
                     </div>
+                    <div id="integrity-override-banner" style="display:none;background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;padding:8px 10px;border-radius:6px;font-size:11px;margin-top:8px;">
+                        <div style="font-weight:600;margin-bottom:4px;" id="override-banner-title">⚠ Integrity warning: M3 status is <span id="override-status-text">OFFLINE</span>.</div>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:500;">
+                            <input type="checkbox" id="override-checkbox" onchange="updateAllowButtonState()">
+                            Approve anyway (requires non-empty admin note)
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Step 3 -->
@@ -131,6 +145,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="action" id="hidden-action" value="">
     <input type="hidden" name="admin_note" id="hidden-note" value="">
+    <input type="hidden" name="override" id="hidden-override" value="0">
 </form>
 
 <script>
@@ -138,6 +153,47 @@ var currentDoc = null;
 var lastFocusedBtn = null;
 var step1Completed = false;
 var step2Passed = false;
+var lastIntegrityData = null;
+
+function updateAllowButtonState() {
+    var allowBtn = document.getElementById("modal-allow-btn");
+    var note = document.getElementById("modal-admin-note").value.trim();
+    var overrideCheckbox = document.getElementById("override-checkbox");
+
+    if (!lastIntegrityData || !step1Completed) {
+        allowBtn.disabled = true;
+        return;
+    }
+
+    var hashOk = lastIntegrityData.file_hash_ok;
+    var m3Status = (lastIntegrityData.m3 && lastIntegrityData.m3.status) ? lastIntegrityData.m3.status : "OFFLINE";
+
+    // Hard block
+    if (hashOk === false || m3Status === "MISMATCH") {
+        allowBtn.disabled = true;
+        return;
+    }
+
+    // Direct MATCH
+    if (hashOk === true && m3Status === "MATCH") {
+        allowBtn.disabled = false;
+        return;
+    }
+
+    // Amber warning states: require override checkbox AND non-empty note
+    if (overrideCheckbox && overrideCheckbox.checked && note.length > 0) {
+        allowBtn.disabled = false;
+    } else {
+        allowBtn.disabled = true;
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    var noteArea = document.getElementById("modal-admin-note");
+    if (noteArea) {
+        noteArea.addEventListener("input", updateAllowButtonState);
+    }
+});
 
 function openReviewModal(docId, docType, fileName, username, userId, submitted, status, btnElement) {
     lastFocusedBtn = btnElement;
@@ -157,6 +213,7 @@ function openReviewModal(docId, docType, fileName, username, userId, submitted, 
     // Reset states
     step1Completed = false;
     step2Passed = false;
+    lastIntegrityData = null;
     document.getElementById("modal-admin-note").value = "";
     document.getElementById("modal-allow-btn").disabled = true;
     document.getElementById("modal-reject-btn").disabled = true;
@@ -167,6 +224,10 @@ function openReviewModal(docId, docType, fileName, username, userId, submitted, 
     document.getElementById("chip-merkle-leaf").style.display = "none";
     document.getElementById("integrity-root-info").textContent = "";
     document.getElementById("integrity-fail-banner").style.display = "none";
+    var overrideBanner = document.getElementById("integrity-override-banner");
+    if (overrideBanner) overrideBanner.style.display = "none";
+    var overrideCheckbox = document.getElementById("override-checkbox");
+    if (overrideCheckbox) overrideCheckbox.checked = false;
 
     // Set Header
     document.getElementById("modal-doc-title").textContent = docType + " — " + fileName;
@@ -244,10 +305,14 @@ function runIntegrityCheck() {
     .then(function(data) {
         btn.textContent = "Re-check";
         btn.disabled = false;
+        lastIntegrityData = data;
 
         var chipHash = document.getElementById("chip-file-hash");
         var chipMerkle = document.getElementById("chip-merkle-leaf");
-        var banner = document.getElementById("integrity-fail-banner");
+        var failBanner = document.getElementById("integrity-fail-banner");
+        var overrideBanner = document.getElementById("integrity-override-banner");
+        var overrideCheckbox = document.getElementById("override-checkbox");
+        var overrideStatusText = document.getElementById("override-status-text");
         var rootInfo = document.getElementById("integrity-root-info");
 
         chipHash.style.display = "inline-block";
@@ -266,6 +331,8 @@ function runIntegrityCheck() {
         }
 
         var m3Status = (data.m3 && data.m3.status) ? data.m3.status : "OFFLINE";
+        var pendingAnchoring = data.m3 && data.m3.pending_anchoring;
+
         if (m3Status === "MATCH") {
             chipMerkle.className = "badge badge-green";
             chipMerkle.textContent = "✓ Merkle leaf matches";
@@ -274,7 +341,11 @@ function runIntegrityCheck() {
             chipMerkle.textContent = "⚡ M3 offline";
         } else if (m3Status === "NOT_FOUND") {
             chipMerkle.className = "badge badge-amber";
-            chipMerkle.textContent = "⚠ Leaf not found";
+            if (pendingAnchoring) {
+                chipMerkle.textContent = "⚠ Pending anchoring";
+            } else {
+                chipMerkle.textContent = "⚠ Leaf not found";
+            }
         } else {
             chipMerkle.className = "badge badge-red";
             chipMerkle.textContent = "✗ Merkle leaf mismatch";
@@ -287,16 +358,20 @@ function runIntegrityCheck() {
         }
 
         if (hashOk === false || m3Status === "MISMATCH") {
-            banner.style.display = "block";
-            step2Passed = false;
-            document.getElementById("modal-allow-btn").disabled = true;
+            failBanner.style.display = "block";
+            overrideBanner.style.display = "none";
+            overrideCheckbox.checked = false;
+        } else if (hashOk === true && m3Status === "MATCH") {
+            failBanner.style.display = "none";
+            overrideBanner.style.display = "none";
+            overrideCheckbox.checked = false;
         } else {
-            banner.style.display = "none";
-            step2Passed = true;
-            if (step1Completed) {
-                document.getElementById("modal-allow-btn").disabled = false;
-            }
+            failBanner.style.display = "none";
+            overrideBanner.style.display = "block";
+            overrideStatusText.textContent = pendingAnchoring ? "PENDING ANCHORING" : m3Status;
         }
+
+        updateAllowButtonState();
     })
     .catch(function(err) {
         btn.textContent = "Verify Integrity";
@@ -319,6 +394,8 @@ function submitDecision(action) {
     form.action = currentDoc.verifyUrl;
     document.getElementById("hidden-action").value = action;
     document.getElementById("hidden-note").value = note;
+    var overrideCheckbox = document.getElementById("override-checkbox");
+    document.getElementById("hidden-override").value = (action === 'approve' && overrideCheckbox && overrideCheckbox.checked) ? "1" : "0";
     form.submit();
 }
 

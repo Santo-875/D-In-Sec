@@ -68,6 +68,7 @@ class Document(db.Model):
     file_path    = db.Column(db.String(500), nullable=True, default='')
     s3_key       = db.Column(db.String(500), nullable=True, default='')
     file_sha256  = db.Column(db.String(64), nullable=True)
+    m3_synced    = db.Column(db.Boolean, default=False)
     status       = db.Column(db.String(20), default='Pending')   # Pending/Verified/Rejected
     admin_note   = db.Column(db.Text, nullable=True)
     submitted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))

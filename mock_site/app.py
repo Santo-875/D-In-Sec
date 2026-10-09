@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 # Load .env from the root of the project
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 load_dotenv(dotenv_path=env_path)
+import threading
+import time
 from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for, request, session, abort
 from flask_login import LoginManager
@@ -64,6 +66,9 @@ def create_app(config_override=None):
             cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(documents)")).fetchall()]
             if 'file_sha256' not in cols:
                 db.session.execute(text("ALTER TABLE documents ADD COLUMN file_sha256 VARCHAR(64)"))
+                db.session.commit()
+            if 'm3_synced' not in cols:
+                db.session.execute(text("ALTER TABLE documents ADD COLUMN m3_synced BOOLEAN DEFAULT 0"))
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -128,7 +133,46 @@ def create_app(config_override=None):
         from routes.auth import login as auth_login
         return auth_login()
 
+    app.retry_unsynced_documents = retry_unsynced_documents
+
+    if not app.config.get('TESTING'):
+        def _retry_daemon():
+            while True:
+                time.sleep(15)
+                try:
+                    with app.app_context():
+                        retry_unsynced_documents(limit=10)
+                except Exception as ex:
+                    logging.getLogger('mock_site').debug(f"M3 retry worker exception: {ex}")
+
+        t = threading.Thread(target=_retry_daemon, daemon=True)
+        t.start()
+
     return app
+
+
+def retry_unsynced_documents(limit: int = 10) -> int:
+    """
+    Retries up to `limit` unsynced documents: re-pushes leaf doc_<id>
+    (recomputed masked hash from doc_type:file_name, real hash = file_sha256).
+    Sets m3_synced = True on success.
+    Returns count of successfully synced documents.
+    """
+    import hashlib
+    from models import Document
+    from m3_client import push_leaf
+    unsynced = Document.query.filter_by(m3_synced=False).order_by(Document.id.asc()).limit(limit).all()
+    synced_count = 0
+    for doc in unsynced:
+        if not doc.file_sha256:
+            continue
+        masked_pii_hash = hashlib.sha256(f"{doc.doc_type}:{doc.file_name}".encode("utf-8")).hexdigest()
+        real_data_hash = doc.file_sha256
+        if push_leaf(f"user_{doc.user_id}", f"doc_{doc.id}", masked_pii_hash, real_data_hash):
+            doc.m3_synced = True
+            db.session.commit()
+            synced_count += 1
+    return synced_count
 
 
 def setup_logging(app, base_dir):

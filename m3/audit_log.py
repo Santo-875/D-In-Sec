@@ -8,7 +8,6 @@ Maintains a permanent, tamper-evident record of all system events:
 """
 
 import hashlib
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -196,7 +195,7 @@ class AppendOnlyAuditLog:
             self.db.save_audit_event(entry.to_dict(), conn=conn)
             self.db.save_checkpoint(checkpoint.to_dict(), conn=conn)
         
-        if self.external_anchor and os.environ.get("STORAGE_BACKEND", "local").lower() == "local":
+        if self.external_anchor:
             self.external_anchor.anchor_checkpoint(checkpoint.to_dict())
 
         return entry

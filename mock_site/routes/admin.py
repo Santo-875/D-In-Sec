@@ -469,9 +469,15 @@ def _check_doc_integrity(doc, admin_id):
         m3_status = "OFFLINE"
 
     checked_at = datetime.now(timezone.utc).isoformat()
+    is_unsynced = not getattr(doc, "m3_synced", False)
+    pending_anchoring = (m3_status == "NOT_FOUND" and is_unsynced)
     return {
         "file_hash_ok": file_hash_ok,
-        "m3": {"status": m3_status},
+        "m3": {
+            "status": m3_status,
+            "pending_anchoring": pending_anchoring,
+            "m3_synced": getattr(doc, "m3_synced", False),
+        },
         "master_root": master_root,
         "checked_at": checked_at,
     }
@@ -530,13 +536,36 @@ def verify_document(doc_id):
         flash('Document not found.', 'error')
         return redirect(url_for('admin.documents'))
 
+    if doc.status != 'Pending':
+        flash("Document already decided.", "error")
+        return redirect(url_for('admin.documents'))
+
     action     = request.form.get('action', '').strip()   # 'approve' or 'reject'
     admin_note = request.form.get('admin_note', '').strip()
 
     if action == 'approve':
         integrity = _check_doc_integrity(doc, current_user.id)
-        if integrity["file_hash_ok"] is False or integrity["m3"]["status"] == "MISMATCH":
+        file_hash_ok = integrity.get("file_hash_ok")
+        m3_status = integrity.get("m3", {}).get("status", "OFFLINE")
+
+        if file_hash_ok is False or m3_status == "MISMATCH":
             flash('Cannot approve document: integrity check failed (file hash mismatch or M3 tamper detected).', 'error')
+            return redirect(url_for('admin.documents'))
+
+        is_override = False
+        override_status = None
+        override_param = request.form.get('override', '').strip()
+
+        if file_hash_ok is True and m3_status == "MATCH":
+            pass
+        elif m3_status in ("NO_BASELINE", "NOT_FOUND", "OFFLINE") or file_hash_ok == "NO_BASELINE":
+            override_status = m3_status if m3_status in ("NO_BASELINE", "NOT_FOUND", "OFFLINE") else "NO_BASELINE"
+            if override_param != '1' or not admin_note:
+                flash(f'Cannot approve document without override confirmation and an admin note when status is {override_status}.', 'error')
+                return redirect(url_for('admin.documents'))
+            is_override = True
+        else:
+            flash('Cannot approve document: integrity verification failed.', 'error')
             return redirect(url_for('admin.documents'))
 
         doc.status      = 'Verified'
@@ -550,10 +579,19 @@ def verify_document(doc_id):
         try:
             from m3_client import push_leaf
             p1 = hashlib.sha256(f"{doc.file_sha256}:{doc.status}".encode("utf-8")).hexdigest()
-            p2 = hashlib.sha256(f"{doc.status}:admin_{current_user.id}:{timestamp}".encode("utf-8")).hexdigest()
+            if is_override:
+                p2 = hashlib.sha256(f"{doc.status}:admin_{current_user.id}:{timestamp}:override:{override_status}".encode("utf-8")).hexdigest()
+            else:
+                p2 = hashlib.sha256(f"{doc.status}:admin_{current_user.id}:{timestamp}".encode("utf-8")).hexdigest()
             push_leaf(f"user_{doc.user_id}", f"doc_{doc.id}_decision", p1, p2)
         except Exception as exc:
             logger.warning("Failed to push decision leaf to M3: %s", exc)
+
+        if is_override:
+            logger.info(
+                f"event=DOCUMENT_OVERRIDE actor_id={doc.user_id} "
+                f"admin_id={current_user.id} doc_id={doc_id} status={override_status}"
+            )
 
         logger.info(
             f"event=DOCUMENT_VERIFY actor_id={doc.user_id} "

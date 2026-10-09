@@ -13,6 +13,7 @@ cryptographic path inclusion/transition proofs, and independent proof verificati
 """
 
 import hashlib
+import threading
 from typing import Any
 
 
@@ -226,36 +227,40 @@ class HierarchicalMerkleTree:
         self.user_subroots: dict[str, UserSubroot] = {}
         self.master_root: str = self.EMPTY_MASTER_ROOT
         self.db = db
+        self._lock = threading.RLock()
         
         if self.db:
             self._load_from_db()
 
     def _load_from_db(self):
-        self.user_subroots.clear()
-        self.master_root = self.EMPTY_MASTER_ROOT
-        
-        leaves = self.db.load_merkle_leaves()
-        # Group by user_id
-        for leaf_data in leaves:
-            uid = leaf_data["user_id"]
-            lid = leaf_data["leaf_id"]
+        with self._lock:
+            self.user_subroots.clear()
+            self.master_root = self.EMPTY_MASTER_ROOT
+            if not self.db:
+                return
             
-            subroot = self.get_or_create_subroot(uid)
-            subroot.leaves[lid] = LeafNode(
-                user_id=uid,
-                leaf_id=lid,
-                masked_pii_hash=leaf_data["masked_pii_hash"],
-                real_data_hash=leaf_data["real_data_hash"],
-                timestamp=leaf_data["timestamp"],
-                version=leaf_data["version"]
-            )
-            
-        # Recompute all subroots
-        for subroot in self.user_subroots.values():
-            subroot._recompute_subroot()
-            
-        # Recompute master root
-        self._recompute_master_root()
+            leaves = self.db.load_merkle_leaves()
+            # Group by user_id
+            for leaf_data in leaves:
+                uid = leaf_data["user_id"]
+                lid = leaf_data["leaf_id"]
+                
+                subroot = self.get_or_create_subroot(uid)
+                subroot.leaves[lid] = LeafNode(
+                    user_id=uid,
+                    leaf_id=lid,
+                    masked_pii_hash=leaf_data["masked_pii_hash"],
+                    real_data_hash=leaf_data["real_data_hash"],
+                    timestamp=leaf_data["timestamp"],
+                    version=leaf_data["version"]
+                )
+                
+            # Recompute all subroots
+            for subroot in self.user_subroots.values():
+                subroot._recompute_subroot()
+                
+            # Recompute master root
+            self._recompute_master_root()
 
     def get_or_create_subroot(self, user_id: str) -> UserSubroot:
         if user_id not in self.user_subroots:
@@ -270,18 +275,19 @@ class HierarchicalMerkleTree:
         Returns:
             Dict[str, Any]: Proof details including old and new subroot and master roots.
         """
-        subroot = self.get_or_create_subroot(user_id)
+        with self._lock:
+            subroot = self.get_or_create_subroot(user_id)
 
-        old_master_root = self.master_root
-        leaf, old_subroot_hash, new_subroot_hash = subroot.update_leaf(
-            leaf_id=leaf_id,
-            masked_pii_hash=masked_pii_hash,
-            real_data_hash=real_data_hash,
-            timestamp=timestamp
-        )
+            old_master_root = self.master_root
+            leaf, old_subroot_hash, new_subroot_hash = subroot.update_leaf(
+                leaf_id=leaf_id,
+                masked_pii_hash=masked_pii_hash,
+                real_data_hash=real_data_hash,
+                timestamp=timestamp
+            )
 
-        self._recompute_master_root()
-        new_master_root = self.master_root
+            self._recompute_master_root()
+            new_master_root = self.master_root
 
         subroot_sibling_proof = self._get_master_sibling_proof(user_id)
         leaf_sibling_proof = subroot.get_leaf_proof(leaf_id)

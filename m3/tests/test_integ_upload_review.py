@@ -311,3 +311,235 @@ def test_upload_end_to_end_leaf_in_snapshot(app_and_client, monkeypatch, tmp_pat
     user_tree = next((u for u in snap["users"] if u["user_id"] == f"user_{user_id}"), None)
     assert user_tree is not None
     assert f"doc_{doc_id}" in user_tree["leaf_ids"]
+
+
+def test_one_decision_per_document(app_and_client, monkeypatch):
+    """
+    T2 Test: One decision per document.
+    Approve then reject leaves status Verified and exactly one doc_<id>_decision leaf.
+    """
+    app, client, user_id, _other_id, admin_id = app_and_client
+    decision_leaves = []
+
+    def mock_push_leaf(u_id, leaf_id, p1, p2, version=1):
+        if "decision" in leaf_id:
+            decision_leaves.append((u_id, leaf_id, p1, p2))
+        return True
+
+    import m3_client
+    monkeypatch.setattr(m3_client, "push_leaf", mock_push_leaf)
+
+    import routes.admin as admin_module
+    monkeypatch.setattr(admin_module, "_check_doc_integrity", lambda doc, aid: {
+        "file_hash_ok": True,
+        "m3": {"status": "MATCH"},
+        "master_root": "0" * 64,
+        "checked_at": "2026-10-09T00:00:00Z"
+    })
+
+    login_user(client, user_id)
+    pdf_bytes = b"%PDF-1.4 test document content"
+    data = {'doc_type': 'Voter ID', 'document': (io.BytesIO(pdf_bytes), 'voter.pdf')}
+    client.post('/dashboard/upload', data=data, content_type='multipart/form-data')
+
+    with app.app_context():
+        doc = Document.query.filter_by(user_id=user_id, file_name='voter.pdf').first()
+        doc_id = doc.id
+        assert doc.status == 'Pending'
+
+    # 1. Admin approves
+    login_user(client, admin_id)
+    r_approve = client.post(f'/admin/documents/{doc_id}/verify', data={'action': 'approve'})
+    assert r_approve.status_code == 302
+    with app.app_context():
+        assert db.session.get(Document, doc_id).status == 'Verified'
+    assert len(decision_leaves) == 1
+    assert decision_leaves[0][1] == f"doc_{doc_id}_decision"
+
+    # 2. Admin tries to reject the already verified doc
+    r_reject = client.post(f'/admin/documents/{doc_id}/verify', data={'action': 'reject', 'admin_note': 'Attempt reject'})
+    assert r_reject.status_code == 302
+    with app.app_context():
+        # Status MUST remain Verified
+        assert db.session.get(Document, doc_id).status == 'Verified'
+    # Exactly one decision leaf still
+    assert len(decision_leaves) == 1
+
+
+def test_stricter_approve_integrity(app_and_client, monkeypatch):
+    """
+    T3 Tests:
+    - MATCH approves
+    - OFFLINE without override is refused
+    - with override+note approves
+    - MISMATCH refused even with override
+    """
+    app, client, user_id, _other_id, admin_id = app_and_client
+    pushed_leaves = []
+
+    def mock_push_leaf(u_id, leaf_id, p1, p2, version=1):
+        pushed_leaves.append((u_id, leaf_id, p1, p2))
+        return True
+
+    import m3_client
+    monkeypatch.setattr(m3_client, "push_leaf", mock_push_leaf)
+
+    import routes.admin as admin_module
+
+    login_user(client, user_id)
+    pdf_bytes = b"%PDF-1.4 sample data"
+    data = {'doc_type': 'PAN Card', 'document': (io.BytesIO(pdf_bytes), 'pan.pdf')}
+    client.post('/dashboard/upload', data=data, content_type='multipart/form-data')
+
+    with app.app_context():
+        doc = Document.query.filter_by(user_id=user_id, file_name='pan.pdf').first()
+        doc_id = doc.id
+
+    login_user(client, admin_id)
+
+    # Case 1: OFFLINE without override is refused
+    monkeypatch.setattr(admin_module, "_check_doc_integrity", lambda d, aid: {
+        "file_hash_ok": True,
+        "m3": {"status": "OFFLINE"},
+        "master_root": None,
+        "checked_at": "2026-10-09T00:00:00Z"
+    })
+    r_off = client.post(f'/admin/documents/{doc_id}/verify', data={'action': 'approve'})
+    assert r_off.status_code == 302
+    with app.app_context():
+        assert db.session.get(Document, doc_id).status == 'Pending'
+
+    # Case 2: OFFLINE with override+note approves
+    pushed_leaves.clear()
+    r_off_override = client.post(
+        f'/admin/documents/{doc_id}/verify',
+        data={'action': 'approve', 'override': '1', 'admin_note': 'Manual check ok'}
+    )
+    assert r_off_override.status_code == 302
+    with app.app_context():
+        assert db.session.get(Document, doc_id).status == 'Verified'
+    assert len(pushed_leaves) == 1
+    assert pushed_leaves[0][1] == f"doc_{doc_id}_decision"
+
+    # Reset doc to Pending for next cases
+    with app.app_context():
+        d = db.session.get(Document, doc_id)
+        d.status = 'Pending'
+        db.session.commit()
+
+    # Case 3: MISMATCH refused even with override
+    monkeypatch.setattr(admin_module, "_check_doc_integrity", lambda d, aid: {
+        "file_hash_ok": True,
+        "m3": {"status": "MISMATCH"},
+        "master_root": "0" * 64,
+        "checked_at": "2026-10-09T00:00:00Z"
+    })
+    r_mismatch = client.post(
+        f'/admin/documents/{doc_id}/verify',
+        data={'action': 'approve', 'override': '1', 'admin_note': 'Forced'}
+    )
+    assert r_mismatch.status_code == 302
+    with app.app_context():
+        assert db.session.get(Document, doc_id).status == 'Pending'
+
+    # Case 4: MATCH approves directly
+    monkeypatch.setattr(admin_module, "_check_doc_integrity", lambda d, aid: {
+        "file_hash_ok": True,
+        "m3": {"status": "MATCH"},
+        "master_root": "0" * 64,
+        "checked_at": "2026-10-09T00:00:00Z"
+    })
+    r_match = client.post(f'/admin/documents/{doc_id}/verify', data={'action': 'approve'})
+    assert r_match.status_code == 302
+    with app.app_context():
+        assert db.session.get(Document, doc_id).status == 'Verified'
+
+
+def test_anchoring_status_and_retry(app_and_client, monkeypatch, tmp_path):
+    """
+    T4 Tests:
+    - Failure on upload -> m3_synced False
+    - retry flips it True and the leaf appears in the snapshot
+    """
+    from m3.api import create_m3_app
+    from m3.crypto_signer import generate_rsa_key_pair
+
+    priv_pem, _pub_pem = generate_rsa_key_pair()
+    m3_db = str(tmp_path / "m3_retry.db")
+    m3_anchor = str(tmp_path / "m3_retry_anchor.log")
+    m3_app = create_m3_app(db_path=m3_db, anchor_path=m3_anchor)
+    m3_test_client = m3_app.test_client()
+
+    monkeypatch.setenv("M3_SIGNING_PRIVATE_KEY", priv_pem)
+    monkeypatch.setenv("M3_ADMIN_API_KEY", "dev-admin-key")
+    monkeypatch.setenv("M3_SERVICE_API_KEY", "dev-service-key")
+
+    import mock_site.m3_client as m3c
+    m3c._registered_identities.clear()
+
+    should_fail = True
+
+    def mock_post(url, json=None, headers=None, timeout=None):
+        if should_fail:
+            class FailResp:
+                status_code = 500
+                text = "Simulated M3 outage"
+                def json(self): return {"error": "down"}
+            return FailResp()
+
+        path = url.split("5001")[-1] if "5001" in url else url
+        if not path.startswith("/"):
+            path = "/" + path
+
+        class MockResp:
+            def __init__(self, r):
+                self._r = r
+                self.status_code = r.status_code
+                self.text = r.get_data(as_text=True)
+
+            def json(self):
+                return self._r.get_json()
+
+        r = m3_test_client.post(path, json=json, headers=headers)
+        return MockResp(r)
+
+    monkeypatch.setattr(m3c.requests, "post", mock_post)
+
+    app, client, user_id, _other_id, _admin_id = app_and_client
+    login_user(client, user_id)
+    pdf_bytes = b"%PDF-1.4 test retry document"
+    data = {'doc_type': 'Passport', 'document': (io.BytesIO(pdf_bytes), 'itr.pdf')}
+
+    # 1. Upload during M3 outage -> failure -> m3_synced is False
+    res = client.post('/dashboard/upload', data=data, content_type='multipart/form-data')
+    assert res.status_code == 302
+
+    with app.app_context():
+        doc = Document.query.filter_by(file_name='itr.pdf').first()
+        doc_id = doc.id
+        assert doc.m3_synced is False
+
+    # Snapshot currently does NOT contain this leaf
+    snap_resp = m3_test_client.get('/api/v1/tree/snapshot', headers={"X-API-Key": "dev-viewer-key"})
+    assert snap_resp.status_code == 200
+    snap = snap_resp.get_json()
+    user_tree = next((u for u in snap["users"] if u["user_id"] == f"user_{user_id}"), None)
+    assert user_tree is None or f"doc_{doc_id}" not in user_tree["leaf_ids"]
+
+    # 2. Outage resolved -> retry flips it True
+    should_fail = False
+    with app.app_context():
+        from app import retry_unsynced_documents
+        synced = retry_unsynced_documents(limit=10)
+        assert synced >= 1
+
+        reloaded = db.session.get(Document, doc_id)
+        assert reloaded.m3_synced is True
+
+    # 3. Leaf now appears in snapshot
+    snap_resp2 = m3_test_client.get('/api/v1/tree/snapshot', headers={"X-API-Key": "dev-viewer-key"})
+    assert snap_resp2.status_code == 200
+    snap2 = snap_resp2.get_json()
+    user_tree2 = next((u for u in snap2["users"] if u["user_id"] == f"user_{user_id}"), None)
+    assert user_tree2 is not None
+    assert f"doc_{doc_id}" in user_tree2["leaf_ids"]

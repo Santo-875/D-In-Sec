@@ -117,6 +117,16 @@ def push_leaf(user_id: str, leaf_id: str, masked_pii_hash: str, real_data_hash: 
             timeout=3.0,
         )
 
+        if response.status_code == 401 and "No public key registered" in response.text:
+            _registered_identities.discard(user_id)
+            if _register_identity_if_needed(user_id, private_key_pem, admin_key, register_url):
+                response = requests.post(
+                    m3_url,
+                    json=request_body,
+                    headers={"X-API-Key": service_key},
+                    timeout=3.0,
+                )
+
         if response.status_code == 200:
             return True
         else:

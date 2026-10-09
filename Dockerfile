@@ -40,4 +40,5 @@ EXPOSE 5001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://127.0.0.1:5001/healthz || exit 1
 
-ENTRYPOINT ["gunicorn", "-w", "4", "-b", "0.0.0.0:5001", "m3.api:create_m3_app()", "--timeout", "120"]
+# Use -w 1 --threads 8: Merkle tree and audit state are kept in-process. Single worker with threads avoids multi-process memory divergence.
+ENTRYPOINT ["gunicorn", "-w", "1", "--threads", "8", "-b", "0.0.0.0:5001", "m3.api:create_m3_app()", "--timeout", "120"]

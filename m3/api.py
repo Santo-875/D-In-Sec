@@ -65,7 +65,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
     # 1. Initialize Persistence Layer
     db = M3Database(db_path)
     storage_backend_name = os.environ.get("STORAGE_BACKEND", "local").lower()
-    external_anchor = ExternalAnchor(anchor_path) if storage_backend_name == "local" else None
+    external_anchor = ExternalAnchor(anchor_path) if (anchor_path or storage_backend_name == "local") else None
 
     # 2. Initialize Storage & Signer backends
     _raw_storage = storage_backend if storage_backend is not None else get_storage_backend()
@@ -91,6 +91,40 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
     app.storage = storage
     app.signer = signer
     app.config['M3_DB_PATH'] = db_path
+
+    app._last_data_version = db.data_version()
+    app._write_lock = tree._lock
+
+    def _sync_state_if_stale():
+        curr_ver = db.data_version()
+        if curr_ver != app._last_data_version:
+            with tree._lock:
+                tree._load_from_db()
+                audit_log._load_from_db()
+                app._last_data_version = curr_ver
+
+    READ_REFRESH_PREFIXES = (
+        "/tree/root",
+        "/api/v1/tree/root",
+        "/tree/snapshot",
+        "/api/v1/tree/snapshot",
+        "/tree/verify-leaf",
+        "/api/v1/tree/verify-leaf",
+        "/tree/proof",
+        "/api/v1/tree/proof",
+        "/tree/verify-proof",
+        "/api/v1/tree/verify-proof",
+        "/audit",
+        "/api/v1/audit",
+        "/v1/verify",
+        "/api/v1/verify",
+    )
+
+    @app.before_request
+    def _refresh_if_stale():
+        path = request.path
+        if any(path.startswith(prefix) for prefix in READ_REFRESH_PREFIXES):
+            _sync_state_if_stale()
 
     ANCHOR_EVERY_N = int(os.environ.get("ANCHOR_EVERY_N", "10"))
     ANCHOR_EVERY_SEC = int(os.environ.get("ANCHOR_EVERY_SEC", "300"))
@@ -515,79 +549,83 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
 
         fingerprint = get_public_key_fingerprint(public_key_pem)
 
-        # 4. Get old leaf hash if existing
-        old_subroot = tree.user_subroots.get(user_id)
-        old_leaf_hash = old_subroot.leaves[leaf_id].combined_hash if old_subroot and leaf_id in old_subroot.leaves else None
+        # 4. Serialize write, refresh if DB version changed, and execute hierarchical tree update
+        with tree._lock:
+            _sync_state_if_stale()
+            old_subroot = tree.user_subroots.get(user_id)
+            old_leaf_hash = old_subroot.leaves[leaf_id].combined_hash if old_subroot and leaf_id in old_subroot.leaves else None
 
-        # 5. Execute hierarchical tree update and DB save in a single transaction
-        from contextlib import closing
-        try:
-            with closing(db.get_connection()) as conn:
-                with conn:
-                    # 5a. Check write-freeze status
-                    frozen, freeze_reason = freeze_mgr.is_frozen(user_id)
-                    if frozen:
-                        return jsonify({
-                            "error": "Write operations are currently frozen",
-                            "reason": freeze_reason
-                        }), 403
+            # 5. Execute hierarchical tree update and DB save in a single transaction
+            from contextlib import closing
+            try:
+                with closing(db.get_connection()) as conn:
+                    with conn:
+                        # 5a. Check write-freeze status
+                        frozen, freeze_reason = freeze_mgr.is_frozen(user_id)
+                        if frozen:
+                            return jsonify({
+                                "error": "Write operations are currently frozen",
+                                "reason": freeze_reason
+                            }), 403
 
-                    # 5b. Anti-replay validation (locks in-memory and writes to DB via conn)
-                    replay_valid, replay_reason = replay_guard.validate_request(
-                        event_id=event_id,
-                        nonce=nonce,
-                        timestamp=timestamp,
-                        user_id=user_id,
-                        leaf_id=leaf_id,
-                        version=version,
-                        conn=conn
-                    )
-                    if not replay_valid:
-                        return jsonify({
-                            "error": "Replay attack detected",
-                            "detail": replay_reason
-                        }), 409
+                        # 5b. Anti-replay validation (locks in-memory and writes to DB via conn)
+                        replay_valid, replay_reason = replay_guard.validate_request(
+                            event_id=event_id,
+                            nonce=nonce,
+                            timestamp=timestamp,
+                            user_id=user_id,
+                            leaf_id=leaf_id,
+                            version=version,
+                            conn=conn
+                        )
+                        if not replay_valid:
+                            return jsonify({
+                                "error": "Replay attack detected",
+                                "detail": replay_reason
+                            }), 409
 
-                    # 5c. Update Merkle Tree
-                    update_proof = tree.update_leaf(
-                        user_id=user_id,
-                        leaf_id=leaf_id,
-                        masked_pii_hash=masked_pii_hash,
-                        real_data_hash=real_data_hash,
-                        timestamp=timestamp,
-                        conn=conn
-                    )
+                        # 5c. Update Merkle Tree
+                        update_proof = tree.update_leaf(
+                            user_id=user_id,
+                            leaf_id=leaf_id,
+                            masked_pii_hash=masked_pii_hash,
+                            real_data_hash=real_data_hash,
+                            timestamp=timestamp,
+                            conn=conn
+                        )
 
-                    # 5d. Log event in append-only log and permanent root chain
-                    audit_entry = audit_log.log_event(
-                        user_id=user_id,
-                        leaf_id=leaf_id,
-                        old_leaf_hash=old_leaf_hash,
-                        new_leaf_hash=update_proof["leaf"]["combined_hash"],
-                        old_master_root=update_proof["old_master_root"],
-                        new_master_root=update_proof["new_master_root"],
-                        signature_hex=signature_hex,
-                        signer_fingerprint=fingerprint,
-                        timestamp=timestamp,
-                        event_id=event_id,
-                        conn=conn
-                    )
+                        # 5d. Log event in append-only log and permanent root chain
+                        audit_entry = audit_log.log_event(
+                            user_id=user_id,
+                            leaf_id=leaf_id,
+                            old_leaf_hash=old_leaf_hash,
+                            new_leaf_hash=update_proof["leaf"]["combined_hash"],
+                            old_master_root=update_proof["old_master_root"],
+                            new_master_root=update_proof["new_master_root"],
+                            signature_hex=signature_hex,
+                            signer_fingerprint=fingerprint,
+                            timestamp=timestamp,
+                            event_id=event_id,
+                            conn=conn
+                        )
 
-                    # 5e. Format and save M4 payload
-                    m4_payload = M4PayloadFormatter.format_m4_payload(
-                        audit_entry=audit_entry,
-                        update_proof=update_proof,
-                        signature_valid=True,
-                        freeze_status=freeze_mgr.get_freeze_status()
-                    )
-                    db.save_m4_payload(audit_entry.event_id, m4_payload, conn=conn)
-        except Exception as e:
-            print(f"Error updating tree: {e!s}")
-            # Rollback in-memory state to match DB
-            tree._load_from_db()
-            audit_log._load_from_db()
-            replay_guard._load_from_db()
-            return jsonify({"error": "Failed to update tree", "detail": str(e)}), 500
+                        # 5e. Format and save M4 payload
+                        m4_payload = M4PayloadFormatter.format_m4_payload(
+                            audit_entry=audit_entry,
+                            update_proof=update_proof,
+                            signature_valid=True,
+                            freeze_status=freeze_mgr.get_freeze_status()
+                        )
+                        db.save_m4_payload(audit_entry.event_id, m4_payload, conn=conn)
+                app._last_data_version = db.data_version()
+            except Exception as e:
+                print(f"Error updating tree: {e!s}")
+                # Rollback in-memory state to match DB
+                tree._load_from_db()
+                audit_log._load_from_db()
+                replay_guard._load_from_db()
+                app._last_data_version = db.data_version()
+                return jsonify({"error": "Failed to update tree", "detail": str(e)}), 500
 
         # AFTER SQLite commit: call storage.put_log & anchor if threshold met
         tenant_id = request.headers.get("X-Tenant-ID", DEFAULT_TENANT)
@@ -627,6 +665,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
 
     # ── VIEWER Endpoints (read-only) ─────────────────────────────────────
 
+    @app.route('/tree/root', methods=['GET'])
     @app.route('/api/v1/tree/root', methods=['GET'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def get_root():
@@ -638,6 +677,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             "permanent_root_chain": audit_log.get_permanent_root_chain()
         }), 200
 
+    @app.route('/tree/snapshot', methods=['GET'])
     @app.route('/api/v1/tree/snapshot', methods=['GET'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def get_tree_snapshot():
@@ -698,6 +738,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             "root_history": root_history
         }), 200
 
+    @app.route('/tree/proof/<user_id>/<leaf_id>', methods=['GET'])
     @app.route('/api/v1/tree/proof/<user_id>/<leaf_id>', methods=['GET'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def get_proof(user_id, leaf_id):
@@ -711,6 +752,7 @@ def create_m3_app(db_path="m3.db", anchor_path="external_anchor.log",
             
         return jsonify(proof), 200
 
+    @app.route('/tree/verify-leaf', methods=['POST'])
     @app.route('/api/v1/tree/verify-leaf', methods=['POST'])
     @require_role("ADMIN", "SERVICE", "VIEWER")
     def verify_leaf():

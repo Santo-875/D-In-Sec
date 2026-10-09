@@ -231,7 +231,9 @@ def upload_document():
     try:
         masked_pii_hash = hashlib.sha256(f"{doc_type}:{original_filename}".encode("utf-8")).hexdigest()
         from m3_client import push_leaf
-        push_leaf(f"user_{current_user.id}", f"doc_{doc.id}", masked_pii_hash, file_sha256)
+        m3_synced_result = bool(push_leaf(f"user_{current_user.id}", f"doc_{doc.id}", masked_pii_hash, file_sha256))
+        doc.m3_synced = m3_synced_result
+        db.session.commit()
     except Exception as e:
         logger.warning(f"event=M3_PUSH_LEAF_FAIL actor_id={current_user.id} doc_id={doc.id} error={e}")
 
