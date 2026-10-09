@@ -28,7 +28,7 @@ from models import db, User
 from routes import register_blueprints
 
 
-def create_app():
+def create_app(config_override=None):
     """Application factory."""
     app = Flask(__name__)
 
@@ -48,6 +48,9 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = os.path.join(base_dir, 'uploads')
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 
+    if config_override:
+        app.config.update(config_override)
+
     # ── Database Init ───────────────────────────────────────────
     os.makedirs(os.path.join(base_dir, 'instance'), exist_ok=True)
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -56,6 +59,15 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        from sqlalchemy import text
+        try:
+            cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(documents)")).fetchall()]
+            if 'file_sha256' not in cols:
+                db.session.execute(text("ALTER TABLE documents ADD COLUMN file_sha256 VARCHAR(64)"))
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logging.getLogger('mock_site').warning(f"Error checking/migrating documents table: {e}")
 
     # ── Flask-Login ─────────────────────────────────────────────
     login_manager = LoginManager()

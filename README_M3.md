@@ -38,4 +38,11 @@ To prevent an attacker from rolling back the entire database to a previous valid
 - **Key Revocation**: Compromised identity keys can be instantly revoked.
 - **Freeze State**: Subtrees (or the Master Root) can be write-frozen in the event of an ongoing breach, cutting off all further updates.
 
+### Generating Signing Keys
+To generate an RSA-2048 signing key formatted for `M3_SIGNING_PRIVATE_KEY`:
+```bash
+python scripts/gen_signing_key.py
+```
+Copy the output into your `.env` or environment configuration under `M3_SIGNING_PRIVATE_KEY`.
+
 This prototype fulfills the core cryptographic requirements for a robust 5th-semester cybersecurity project!

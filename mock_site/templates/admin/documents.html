@@ -6,7 +6,7 @@
 <div class="section-header">
     <div>
         <div class="section-title">All Submitted Documents</div>
-        <div class="section-sub">Review and approve or reject uploaded documents. No raw file content is shown - files are encrypted in the vault.</div>
+        <div class="section-sub">Review and verify cryptographic integrity of submitted documents.</div>
     </div>
 </div>
 
@@ -45,22 +45,7 @@
                 </td>
                 <td style="font-size:12px;color:var(--muted)">{{ doc.admin_note or '-' }}</td>
                 <td>
-                    {% if doc.status == 'Pending' %}
-                    <button class="btn btn-sm btn-success" onclick="document.getElementById('verify-{{ doc.id }}').style.display='block'">Review</button>
-                    <div id="verify-{{ doc.id }}" style="display:none;margin-top:10px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-                        <form method="POST" action="{{ url_for('admin.verify_document', doc_id=doc.id) }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <textarea name="admin_note" placeholder="Optional note..." rows="2"
-                                style="width:100%;background:var(--surface);border:1px solid var(--border);color:var(--ink);border-radius:6px;padding:8px;font-size:12px;margin-bottom:8px;font-family:inherit"></textarea>
-                            <div style="display:flex;gap:8px">
-                                <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">Approve</button>
-                                <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">Reject</button>
-                            </div>
-                        </form>
-                    </div>
-                    {% else %}
-                    <span style="font-size:12px;color:var(--muted)">-</span>
-                    {% endif %}
+                    <button class="btn btn-sm btn-primary" onclick="openReviewModal({{ doc.id }}, '{{ doc.doc_type|escape }}', '{{ doc.file_name|escape }}', '{{ username|escape }}', '{{ doc.user_id }}', '{{ doc.submitted_at.strftime('%d %b %Y, %H:%M') }}', '{{ doc.status }}', this)">Review</button>
                 </td>
             </tr>
             {% else %}
@@ -69,4 +54,295 @@
         </tbody>
     </table>
 </div>
+
+<!-- Review Modal -->
+<div id="review-modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(2px);" onclick="handleBackdropClick(event)">
+    <div id="review-modal" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-md);width:92vw;max-width:1050px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;" onclick="event.stopPropagation()">
+        <!-- Header -->
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface2)">
+            <div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <h3 id="modal-doc-title" style="font-size:16px;font-weight:600;color:var(--ink);">Document Review</h3>
+                    <span id="modal-doc-status-badge" class="badge"></span>
+                </div>
+                <div id="modal-doc-meta" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+            </div>
+            <button onclick="closeReviewModal()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:22px;padding:4px 8px;border-radius:4px;" title="Close (Esc)">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div style="display:flex;flex:1;min-height:480px;max-height:calc(90vh - 80px);overflow:hidden;">
+            <!-- Left: Preview -->
+            <div id="modal-preview-col" style="flex:1.2;background:var(--surface2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px;overflow:hidden;position:relative;">
+                <div id="preview-container" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+
+            <!-- Right: Steps -->
+            <div style="flex:1;padding:20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;background:var(--surface);">
+                <!-- Step 1 -->
+                <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface);">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
+                        <span>Step 1: File Review</span>
+                        <span id="step1-chip" class="badge badge-amber" style="font-size:11px;">Pending View</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--muted);">Preview must load before any administrative actions can be taken.</div>
+                </div>
+
+                <!-- Step 2 -->
+                <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface);">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
+                        <span>Step 2: Cryptographic Integrity</span>
+                        <button id="verify-integrity-btn" class="btn btn-sm btn-primary" onclick="runIntegrityCheck()" style="font-size:11px;padding:4px 10px;">Verify Integrity</button>
+                    </div>
+                    <div id="integrity-results" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+                        <div id="chip-file-hash" class="badge" style="display:none;align-self:flex-start;font-size:11px;"></div>
+                        <div id="chip-merkle-leaf" class="badge" style="display:none;align-self:flex-start;font-size:11px;"></div>
+                        <div id="integrity-root-info" style="font-size:11px;color:var(--muted);margin-top:2px;"></div>
+                    </div>
+                    <div id="integrity-fail-banner" style="display:none;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:8px 10px;border-radius:6px;font-size:11px;margin-top:8px;font-weight:500;">
+                        ⚠ Integrity failed: Cryptographic verification mismatch. Document approval is disabled.
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface);">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Step 3: Decision</div>
+                    <textarea id="modal-admin-note" rows="2" placeholder="Admin note (required for rejection)..."
+                        style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--ink);border-radius:6px;padding:8px;font-size:12px;margin-bottom:10px;font-family:inherit;resize:vertical;"></textarea>
+                    
+                    <div style="display:flex;gap:10px;">
+                        <button id="modal-allow-btn" class="btn btn-sm btn-success" disabled onclick="submitDecision('approve')" style="flex:1;">
+                            Allow (Approve)
+                        </button>
+                        <button id="modal-reject-btn" class="btn btn-sm btn-danger" disabled onclick="submitDecision('reject')" style="flex:1;">
+                            Reject
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden submission form -->
+<form id="hidden-verify-form" method="POST" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" id="hidden-action" value="">
+    <input type="hidden" name="admin_note" id="hidden-note" value="">
+</form>
+
+<script>
+var currentDoc = null;
+var lastFocusedBtn = null;
+var step1Completed = false;
+var step2Passed = false;
+
+function openReviewModal(docId, docType, fileName, username, userId, submitted, status, btnElement) {
+    lastFocusedBtn = btnElement;
+    currentDoc = {
+        id: docId,
+        docType: docType,
+        fileName: fileName,
+        username: username,
+        userId: userId,
+        submitted: submitted,
+        status: status,
+        fileUrl: "/admin/documents/" + docId + "/file",
+        integrityUrl: "/admin/documents/" + docId + "/integrity",
+        verifyUrl: "/admin/documents/" + docId + "/verify"
+    };
+
+    // Reset states
+    step1Completed = false;
+    step2Passed = false;
+    document.getElementById("modal-admin-note").value = "";
+    document.getElementById("modal-allow-btn").disabled = true;
+    document.getElementById("modal-reject-btn").disabled = true;
+    document.getElementById("verify-integrity-btn").disabled = false;
+    document.getElementById("step1-chip").className = "badge badge-amber";
+    document.getElementById("step1-chip").textContent = "Pending View";
+    document.getElementById("chip-file-hash").style.display = "none";
+    document.getElementById("chip-merkle-leaf").style.display = "none";
+    document.getElementById("integrity-root-info").textContent = "";
+    document.getElementById("integrity-fail-banner").style.display = "none";
+
+    // Set Header
+    document.getElementById("modal-doc-title").textContent = docType + " — " + fileName;
+    document.getElementById("modal-doc-meta").textContent = "Owner: " + username + " (user_" + userId + ") | Submitted: " + submitted;
+    var statusBadge = document.getElementById("modal-doc-status-badge");
+    statusBadge.textContent = status;
+    statusBadge.className = "badge " + (status === 'Verified' ? 'badge-green' : (status === 'Rejected' ? 'badge-red' : 'badge-amber'));
+
+    // Render Preview
+    var ext = fileName.split('.').pop().toLowerCase();
+    var previewContainer = document.getElementById("preview-container");
+    previewContainer.innerHTML = "";
+
+    if (ext === 'pdf') {
+        var iframe = document.createElement("iframe");
+        iframe.src = currentDoc.fileUrl;
+        iframe.style.width = "100%";
+        iframe.style.height = "100%";
+        iframe.style.border = "none";
+        iframe.style.borderRadius = "6px";
+        iframe.onload = onPreviewLoaded;
+        previewContainer.appendChild(iframe);
+    } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+        var img = document.createElement("img");
+        img.src = currentDoc.fileUrl;
+        img.style.maxWidth = "100%";
+        img.style.maxHeight = "100%";
+        img.style.objectFit = "contain";
+        img.style.borderRadius = "6px";
+        img.onload = onPreviewLoaded;
+        previewContainer.appendChild(img);
+    } else {
+        // doc / docx download card
+        var card = document.createElement("div");
+        card.style.textAlign = "center";
+        card.style.padding = "30px";
+        card.innerHTML = '<div style="font-size:36px;margin-bottom:12px;">📄</div>' +
+            '<div style="font-weight:600;color:var(--ink);margin-bottom:6px;">' + fileName + '</div>' +
+            '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;">Inline preview unavailable for Office documents.</div>' +
+            '<a href="' + currentDoc.fileUrl + '?download=1" class="btn btn-sm btn-primary" onclick="onPreviewLoaded()">Download File</a>';
+        previewContainer.appendChild(card);
+        // Auto-tick file viewed for download cards after slight delay
+        setTimeout(onPreviewLoaded, 400);
+    }
+
+    var backdrop = document.getElementById("review-modal-backdrop");
+    backdrop.style.display = "flex";
+    document.addEventListener("keydown", handleKeyDown);
+}
+
+function onPreviewLoaded() {
+    if (step1Completed) return;
+    step1Completed = true;
+    var chip = document.getElementById("step1-chip");
+    chip.className = "badge badge-green";
+    chip.textContent = "✓ File viewed";
+    // Reject is always available after viewing
+    document.getElementById("modal-reject-btn").disabled = false;
+}
+
+function runIntegrityCheck() {
+    if (!currentDoc) return;
+    var btn = document.getElementById("verify-integrity-btn");
+    btn.disabled = true;
+    btn.textContent = "Checking...";
+
+    fetch(currentDoc.integrityUrl, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": "{{ csrf_token() }}"
+        }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        btn.textContent = "Re-check";
+        btn.disabled = false;
+
+        var chipHash = document.getElementById("chip-file-hash");
+        var chipMerkle = document.getElementById("chip-merkle-leaf");
+        var banner = document.getElementById("integrity-fail-banner");
+        var rootInfo = document.getElementById("integrity-root-info");
+
+        chipHash.style.display = "inline-block";
+        chipMerkle.style.display = "inline-block";
+
+        var hashOk = data.file_hash_ok;
+        if (hashOk === true) {
+            chipHash.className = "badge badge-green";
+            chipHash.textContent = "✓ File hash matches upload record";
+        } else if (hashOk === "NO_BASELINE") {
+            chipHash.className = "badge badge-amber";
+            chipHash.textContent = "⚠ No hash baseline";
+        } else {
+            chipHash.className = "badge badge-red";
+            chipHash.textContent = "✗ File hash mismatch";
+        }
+
+        var m3Status = (data.m3 && data.m3.status) ? data.m3.status : "OFFLINE";
+        if (m3Status === "MATCH") {
+            chipMerkle.className = "badge badge-green";
+            chipMerkle.textContent = "✓ Merkle leaf matches";
+        } else if (m3Status === "OFFLINE") {
+            chipMerkle.className = "badge badge-amber";
+            chipMerkle.textContent = "⚡ M3 offline";
+        } else if (m3Status === "NOT_FOUND") {
+            chipMerkle.className = "badge badge-amber";
+            chipMerkle.textContent = "⚠ Leaf not found";
+        } else {
+            chipMerkle.className = "badge badge-red";
+            chipMerkle.textContent = "✗ Merkle leaf mismatch";
+        }
+
+        if (data.master_root) {
+            rootInfo.textContent = "Master root: " + data.master_root.substring(0, 16) + "...";
+        } else {
+            rootInfo.textContent = "";
+        }
+
+        if (hashOk === false || m3Status === "MISMATCH") {
+            banner.style.display = "block";
+            step2Passed = false;
+            document.getElementById("modal-allow-btn").disabled = true;
+        } else {
+            banner.style.display = "none";
+            step2Passed = true;
+            if (step1Completed) {
+                document.getElementById("modal-allow-btn").disabled = false;
+            }
+        }
+    })
+    .catch(function(err) {
+        btn.textContent = "Verify Integrity";
+        btn.disabled = false;
+        alert("Integrity check request failed: " + err);
+    });
+}
+
+function submitDecision(action) {
+    if (!currentDoc) return;
+    var note = document.getElementById("modal-admin-note").value.trim();
+
+    if (action === 'reject' && !note) {
+        alert("Rejection requires a non-empty note explaining the reason.");
+        document.getElementById("modal-admin-note").focus();
+        return;
+    }
+
+    var form = document.getElementById("hidden-verify-form");
+    form.action = currentDoc.verifyUrl;
+    document.getElementById("hidden-action").value = action;
+    document.getElementById("hidden-note").value = note;
+    form.submit();
+}
+
+function closeReviewModal() {
+    var backdrop = document.getElementById("review-modal-backdrop");
+    backdrop.style.display = "none";
+    document.getElementById("preview-container").innerHTML = "";
+    document.removeEventListener("keydown", handleKeyDown);
+    if (lastFocusedBtn) {
+        lastFocusedBtn.focus();
+    }
+}
+
+function handleBackdropClick(e) {
+    if (e.target.id === "review-modal-backdrop") {
+        closeReviewModal();
+    }
+}
+
+function handleKeyDown(e) {
+    if (e.key === "Escape") {
+        closeReviewModal();
+    }
+}
+</script>
 {% endblock %}
+

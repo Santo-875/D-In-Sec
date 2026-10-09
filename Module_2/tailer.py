@@ -127,7 +127,11 @@ def _register_key_with_m3(public_key_pem: str, user_id: str = "admin"):
     Requires M3_ADMIN_API_KEY for ADMIN-level access to /identity/register.
     Best-effort: logs warning if M3 is unreachable.
     """
-    admin_key = os.environ.get("M3_ADMIN_API_KEY", "admin-key-change-me")
+    admin_key = os.environ.get("M3_ADMIN_API_KEY")
+    if not admin_key:
+        print("[ERROR] M3_ADMIN_API_KEY is not set. Skipping M3 key registration.")
+        return
+
     m3_base = os.environ.get("M3_API_URL", "http://127.0.0.1:5001/api/v1/tree/update")
     register_url = m3_base.rsplit("/tree/update", 1)[0] + "/identity/register"
 
@@ -181,7 +185,10 @@ def _process_outbox_item(db_path: Path, outbox_id: int, alert_id: int, user_id: 
             "signature_hex": signature_hex
         }
 
-        service_key = os.environ.get("M3_SERVICE_API_KEY", "m2-service-key-change-me")
+        service_key = os.environ.get("M3_SERVICE_API_KEY")
+        if not service_key:
+            print("[ERROR] M3_SERVICE_API_KEY is not set. Skipping M3 tree update.")
+            return False
 
         headers = {"X-API-Key": service_key}
         m3_url = os.environ.get("M3_API_URL", "http://127.0.0.1:5001/api/v1/tree/update")
@@ -308,11 +315,13 @@ def main():
 
     # Auto-register public key with M3 on startup
     private_key_pem = load_private_key_from_env("M3_SIGNING_PRIVATE_KEY")
-    if private_key_pem:
+    admin_key = os.environ.get("M3_ADMIN_API_KEY")
+    service_key = os.environ.get("M3_SERVICE_API_KEY")
+    if not private_key_pem or not admin_key or not service_key:
+        print("[ERROR] M3 configuration incomplete (M3_SIGNING_PRIVATE_KEY, M3_ADMIN_API_KEY, or M3_SERVICE_API_KEY not set). M3 wiring will be skipped.")
+    else:
         public_key_pem = get_public_key_from_private_pem(private_key_pem)
         _register_key_with_m3(public_key_pem)
-    else:
-        print("[WARN] M3_SIGNING_PRIVATE_KEY not set. M3 wiring will be skipped.")
 
     # Start outbox retry worker
     import threading

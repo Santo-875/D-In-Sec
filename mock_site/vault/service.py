@@ -73,3 +73,20 @@ def vault_get_file(token_id: str, requesting_user_id: int):
     except VaultAccessError as e:
         logger.warning(f"event=VAULT_FAIL purpose=document actor_id={requesting_user_id} token={token_id[:8]}... reason={e}")
         return None, None
+
+
+def vault_get_file_for_review(token_id: str, owner_id: int, admin_id: int):
+    """
+    Retrieve and decrypt a stored file for admin review.
+    Calls retrieve(token_id, owner_id) and logs event=ADMIN_DOC_VIEW admin_id=.. with token prefix.
+    """
+    try:
+        data = retrieve(token_id, owner_id)
+        file_bytes = bytes.fromhex(data['file_b64'])
+        meta = data['meta']
+        logger.info(f"event=ADMIN_DOC_VIEW admin_id={admin_id} token={token_id[:8]}... status=success")
+        return file_bytes, meta
+    except VaultAccessError as e:
+        logger.warning(f"event=ADMIN_DOC_VIEW_FAIL admin_id={admin_id} token={token_id[:8]}... reason={e}")
+        return None, None
+

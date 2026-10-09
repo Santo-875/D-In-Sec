@@ -14,6 +14,7 @@ import re
 import uuid
 import json
 import logging
+import hashlib
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, send_file
 from flask_login import login_required, current_user
@@ -156,7 +157,29 @@ def upload_document():
 
     # Read file bytes into memory — encrypt directly, no raw write to disk
     file_bytes = file.read()
-    ext = original_filename.rsplit('.', 1)[1].lower()
+    ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
+
+    # Validate magic bytes vs extension
+    magic_valid = False
+    if ext == 'pdf':
+        magic_valid = file_bytes.startswith(b"%PDF-")
+    elif ext == 'png':
+        magic_valid = file_bytes.startswith(b"\x89PNG")
+    elif ext in ('jpg', 'jpeg'):
+        magic_valid = file_bytes.startswith(b"\xff\xd8\xff")
+    elif ext in ('doc', 'docx'):
+        # allow by extension + size check
+        max_size = current_app.config.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024)
+        magic_valid = (0 < len(file_bytes) <= max_size)
+
+    if not magic_valid:
+        logger.warning(
+            f"event=UPLOAD_REJECTED actor_id={current_user.id} reason=magic_byte_mismatch ext={ext}"
+        )
+        flash('File content does not match its file extension.', 'error')
+        return redirect(url_for('dashboard.index'))
+
+    file_sha256 = hashlib.sha256(file_bytes).hexdigest()
     random_name = uuid.uuid4().hex  # e.g., "8f3a9c7b..."
 
     meta = {
@@ -198,10 +221,19 @@ def upload_document():
         file_name=original_filename,
         file_path=s3_key or f"vault://{file_token}",
         s3_key=s3_key,
+        file_sha256=file_sha256,
         status='Pending',
     )
     db.session.add(doc)
     db.session.commit()
+
+    # Call push_leaf to M3 — never block upload on M3 failure
+    try:
+        masked_pii_hash = hashlib.sha256(f"{doc_type}:{original_filename}".encode("utf-8")).hexdigest()
+        from m3_client import push_leaf
+        push_leaf(f"user_{current_user.id}", f"doc_{doc.id}", masked_pii_hash, file_sha256)
+    except Exception as e:
+        logger.warning(f"event=M3_PUSH_LEAF_FAIL actor_id={current_user.id} doc_id={doc.id} error={e}")
 
     # Structured log — no raw PII
     logger.info(
@@ -220,9 +252,10 @@ def upload_document():
 @login_required
 def verify_document(doc_id):
     """
-    Mock verification — checks that the user's vault profile has required fields.
+    Profile completeness check — validates required fields without setting status to Verified.
+    Only administrators can approve/verify documents.
     """
-    doc = Document.query.get_or_404(doc_id)
+    doc = db.get_or_404(Document, doc_id)
 
     if doc.user_id != current_user.id:
         flash('Unauthorized access.', 'error')
@@ -242,23 +275,22 @@ def verify_document(doc_id):
     }
     missing = [name for name, val in required_fields.items() if not val]
 
+    # Close self-verify hole: status remains Pending
+    doc.status = 'Pending'
+    db.session.commit()
+
     if missing:
-        doc.status = 'Pending'
-        db.session.commit()
         logger.info(
             f"event=DOCUMENT_VERIFY actor_id={current_user.id} "
             f"doc_id={doc_id} status=pending missing_fields={len(missing)}"
         )
         flash(f'Verification pending. Please complete: {", ".join(missing)}', 'warning')
     else:
-        doc.status = 'Verified'
-        doc.verified_at = datetime.now(timezone.utc)
-        db.session.commit()
         logger.info(
             f"event=DOCUMENT_VERIFY actor_id={current_user.id} "
-            f"doc_id={doc_id} status=verified"
+            f"doc_id={doc_id} status=pending profile=complete"
         )
-        flash('Document has been verified!', 'success')
+        flash('Profile completeness verified! An administrator will review your document.', 'info')
 
     return redirect(url_for('dashboard.index'))
 

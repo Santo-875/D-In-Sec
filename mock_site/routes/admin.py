@@ -12,12 +12,13 @@ from flask import (Blueprint, render_template, redirect, url_for,
                    request, flash, abort, jsonify)
 from flask_login import login_required, current_user
 from models import db, User, Document, FieldSchema, DsarRequest, IncidentAlert
-from vault.service import vault_get_profile, vault_get_file
+from vault.service import vault_get_profile, vault_get_file, vault_get_file_for_review
 from vault.token_manager import VaultAccessError
 import csv
 from io import StringIO
 import os
 import hashlib
+import requests
 from flask import Response
 
 admin_bp = Blueprint('admin', __name__)
@@ -407,6 +408,120 @@ def documents():
     return render_template('admin/documents.html', docs=docs)
 
 
+def _check_doc_integrity(doc, admin_id):
+    file_bytes, _ = vault_get_file_for_review(doc.file_token, doc.user_id, admin_id)
+    if file_bytes is None:
+        file_hash_ok = False
+    elif not doc.file_sha256:
+        file_hash_ok = "NO_BASELINE"
+    else:
+        decrypted_hash = hashlib.sha256(file_bytes).hexdigest()
+        file_hash_ok = (decrypted_hash == doc.file_sha256)
+
+    from routes.soc import _get_m3_base_url, fetch_cloud_status
+    base_url = _get_m3_base_url()
+    service_key = os.environ.get("M3_SERVICE_API_KEY") or os.environ.get("M3_ADMIN_API_KEY") or ""
+
+    m3_status = "OFFLINE"
+    master_root = None
+
+    try:
+        cs = fetch_cloud_status()
+        master_root = cs.get("master_root")
+    except Exception:
+        pass
+
+    if base_url and service_key:
+        masked_pii_hash = hashlib.sha256(f"{doc.doc_type}:{doc.file_name}".encode("utf-8")).hexdigest()
+        real_data_hash = doc.file_sha256 or (hashlib.sha256(file_bytes).hexdigest() if file_bytes else "")
+        try:
+            resp = requests.post(
+                f"{base_url}/api/v1/tree/verify-leaf",
+                json={
+                    "user_id": f"user_{doc.user_id}",
+                    "leaf_id": f"doc_{doc.id}",
+                    "masked_pii_hash": masked_pii_hash,
+                    "real_data_hash": real_data_hash,
+                },
+                headers={"X-API-Key": service_key},
+                timeout=3,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("integrity_verified") is True:
+                    m3_status = "MATCH"
+                else:
+                    m3_status = "MISMATCH"
+            elif resp.status_code == 404:
+                m3_status = "NOT_FOUND"
+            elif resp.status_code == 400:
+                data = resp.json()
+                if data.get("error") == "LEAF_NOT_FOUND":
+                    m3_status = "NOT_FOUND"
+                else:
+                    m3_status = "MISMATCH"
+            else:
+                m3_status = "MISMATCH"
+        except Exception as exc:
+            logger.warning("Error calling M3 verify-leaf: %s", exc)
+            m3_status = "OFFLINE"
+    else:
+        m3_status = "OFFLINE"
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "file_hash_ok": file_hash_ok,
+        "m3": {"status": m3_status},
+        "master_root": master_root,
+        "checked_at": checked_at,
+    }
+
+
+@admin_bp.route('/documents/<int:doc_id>/file', methods=['GET'])
+@admin_required
+def get_document_file(doc_id):
+    doc = db.session.get(Document, doc_id)
+    if not doc:
+        abort(404)
+
+    file_bytes, meta = vault_get_file_for_review(doc.file_token, doc.user_id, current_user.id)
+    if not file_bytes:
+        abort(404)
+
+    ext = doc.file_name.rsplit('.', 1)[1].lower() if '.' in doc.file_name else ''
+    mime_map = {
+        'pdf': 'application/pdf',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    content_type = mime_map.get(ext, 'application/octet-stream')
+
+    download = request.args.get('download') == '1' or ext in ('doc', 'docx')
+    disposition = 'attachment' if download else 'inline'
+    safe_filename = os.path.basename(doc.file_name).replace('"', '') or f"document_{doc.id}.{ext}"
+
+    response = Response(file_bytes, mimetype=content_type)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Security-Policy'] = 'sandbox'
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Content-Disposition'] = f'{disposition}; filename="{safe_filename}"'
+    return response
+
+
+@admin_bp.route('/documents/<int:doc_id>/integrity', methods=['POST'])
+@admin_required
+def document_integrity(doc_id):
+    doc = db.session.get(Document, doc_id)
+    if not doc:
+        return jsonify({"error": "Document not found"}), 404
+
+    result = _check_doc_integrity(doc, current_user.id)
+    return jsonify(result)
+
+
 @admin_bp.route('/documents/<int:doc_id>/verify', methods=['POST'])
 @admin_required
 def verify_document(doc_id):
@@ -419,11 +534,27 @@ def verify_document(doc_id):
     admin_note = request.form.get('admin_note', '').strip()
 
     if action == 'approve':
+        integrity = _check_doc_integrity(doc, current_user.id)
+        if integrity["file_hash_ok"] is False or integrity["m3"]["status"] == "MISMATCH":
+            flash('Cannot approve document: integrity check failed (file hash mismatch or M3 tamper detected).', 'error')
+            return redirect(url_for('admin.documents'))
+
         doc.status      = 'Verified'
         doc.verified_at = datetime.now(timezone.utc)
         doc.verified_by = current_user.id
         doc.admin_note  = admin_note or None
         db.session.commit()
+
+        # Push decision leaf to M3
+        timestamp = datetime.now(timezone.utc).isoformat()
+        try:
+            from m3_client import push_leaf
+            p1 = hashlib.sha256(f"{doc.file_sha256}:{doc.status}".encode("utf-8")).hexdigest()
+            p2 = hashlib.sha256(f"{doc.status}:admin_{current_user.id}:{timestamp}".encode("utf-8")).hexdigest()
+            push_leaf(f"user_{doc.user_id}", f"doc_{doc.id}_decision", p1, p2)
+        except Exception as exc:
+            logger.warning("Failed to push decision leaf to M3: %s", exc)
+
         logger.info(
             f"event=DOCUMENT_VERIFY actor_id={doc.user_id} "
             f"admin_id={current_user.id} doc_id={doc_id} status=verified"
@@ -431,10 +562,26 @@ def verify_document(doc_id):
         flash('Document verified successfully.', 'success')
 
     elif action == 'reject':
-        doc.status     = 'Rejected'
+        if not admin_note:
+            flash('Rejection requires a non-empty note explaining the reason.', 'error')
+            return redirect(url_for('admin.documents'))
+
+        doc.status      = 'Rejected'
+        doc.verified_at = datetime.now(timezone.utc)
         doc.verified_by = current_user.id
-        doc.admin_note  = admin_note or None
+        doc.admin_note  = admin_note
         db.session.commit()
+
+        # Push decision leaf to M3
+        timestamp = datetime.now(timezone.utc).isoformat()
+        try:
+            from m3_client import push_leaf
+            p1 = hashlib.sha256(f"{doc.file_sha256}:{doc.status}".encode("utf-8")).hexdigest()
+            p2 = hashlib.sha256(f"{doc.status}:admin_{current_user.id}:{timestamp}".encode("utf-8")).hexdigest()
+            push_leaf(f"user_{doc.user_id}", f"doc_{doc.id}_decision", p1, p2)
+        except Exception as exc:
+            logger.warning("Failed to push decision leaf to M3: %s", exc)
+
         logger.info(
             f"event=DOCUMENT_VERIFY actor_id={doc.user_id} "
             f"admin_id={current_user.id} doc_id={doc_id} status=rejected"
